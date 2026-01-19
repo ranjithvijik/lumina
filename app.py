@@ -16,6 +16,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, confusion_matrix, roc_curve, auc, accuracy_score
 import statsmodels.api as sm
 from statsmodels.formula.api import ols
+import statsmodels.formula.api as smf
 from statsmodels.stats.outliers_influence import variance_inflation_factor
 import json
 import io
@@ -23,12 +24,14 @@ import warnings
 warnings.filterwarnings('ignore')
 
 # Advanced Analytics Imports (Professional Phases)
-from sklearn.ensemble import IsolationForest
+from sklearn.ensemble import IsolationForest, RandomForestClassifier, RandomForestRegressor, GradientBoostingClassifier, GradientBoostingRegressor, VotingClassifier, VotingRegressor
 from sklearn.neighbors import LocalOutlierFactor
-from sklearn.preprocessing import PolynomialFeatures, RobustScaler, MinMaxScaler, LabelEncoder
+from sklearn.preprocessing import PolynomialFeatures, RobustScaler, MinMaxScaler, LabelEncoder, StandardScaler
 from sklearn.linear_model import LogisticRegression, LinearRegression
 from xgboost import XGBClassifier, XGBRegressor
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import roc_auc_score, accuracy_score, r2_score, mean_squared_error, classification_report, confusion_matrix
+from sklearn.model_selection import train_test_split, RandomizedSearchCV, cross_val_score
+from sklearn.inspection import partial_dependence
 try:
     import shap
 except ImportError:
@@ -2930,15 +2933,12 @@ def render_explainability(df):
         feature_to_plot = st.selectbox("Select Feature for PDP", features)
         
         common_params = {
-            "subsample": 50,
-            "n_jobs": 2,
             "grid_resolution": 20,
-            "random_state": 0,
         }
         
         display = partial_dependence(model, X, [feature_to_plot], kind="average", **common_params)
         
-        fig = px.line(x=display['values'][0], y=display['average'][0], 
+        fig = px.line(x=display['grid_values'][0], y=display['average'][0], 
                       title=f"Partial Dependence: {feature_to_plot}",
                       labels={'x': feature_to_plot, 'y': 'Partial Dependence'})
         safe_plot(fig)
@@ -3464,7 +3464,7 @@ def render_bi_analytics(df):
                 val = st.slider(feat, float(df[feat].min()), float(df[feat].max()), float(df[feat].mean()))
                 input_data[feat] = val
             
-            pred = model.predict(pd.DataFrame([input_data]))[0]
+            pred = model.predict(pd.DataFrame([input_data])[features_wi])[0]
             st.metric("Predicted Outcome", f"{pred:.2f}")
 
 # ============================================================================
