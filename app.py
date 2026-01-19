@@ -125,6 +125,41 @@ try:
 except ImportError:
     SHAP_AVAILABLE = False
 
+try:
+    import lime
+    import lime.lime_tabular
+    LIME_AVAILABLE = True
+except ImportError:
+    LIME_AVAILABLE = False
+
+try:
+    from prophet import Prophet
+    PROPHET_AVAILABLE = True
+except ImportError:
+    PROPHET_AVAILABLE = False
+
+try:
+    from statsmodels.tsa.arima.model import ARIMA
+    from statsmodels.tsa.vector_ar.var_model import VAR
+    from statsmodels.stats.multicomp import pairwise_tukeyhsd
+    from statsmodels.stats.anova import AnovaRM
+    STATSMODELS_ADV_AVAILABLE = True
+except ImportError:
+    STATSMODELS_ADV_AVAILABLE = False
+
+try:
+    import optuna
+    OPTUNA_AVAILABLE = True
+except ImportError:
+    OPTUNA_AVAILABLE = False
+
+try:
+    from lifetimes import BetaGeoFitter, GammaGammaFitter
+    from lifetimes.utils import summary_data_from_transaction_data
+    LIFETIMES_AVAILABLE = True
+except ImportError:
+    LIFETIMES_AVAILABLE = False
+
 
 # ============================================================================
 # 1. CONFIGURATION & THEME
@@ -2651,6 +2686,8 @@ def render_smart_narrative(df):
 # 5. ADVANCED ANALYTICS (NEW MODULES)
 # ============================================================================
 
+# --- RETAINED SPECIALIZED MODULES ---
+
 def render_3d_scatter(df):
     """Interactive 3D Scatter Plot visualization."""
     with stat_box("3D Visualization Config"):
@@ -2805,191 +2842,630 @@ def render_pdf_report(df):
         doc.build(story)
         st.download_button("Download PDF", buffer.getvalue(), "report.pdf", "application/pdf")
 
-def render_text_analysis(df):
-    """Sentiment Analysis."""
-    st.markdown("### 📝 Text Analysis (Sentiment)")
+# --- NEW ANALYTICS SUITES (2.0) ---
+
+def render_explainability(df):
+    st.header("🔍 Explainability & Interpretability")
+    
     if df is None: return
-    if not TEXTBLOB_AVAILABLE: st.error("TextBlob not installed."); return
+    num_cols, cat_cols, _ = get_column_types(df)
     
-    _, cat_cols, _ = get_column_types(df)
-    text_col = st.selectbox("Select Text Column", cat_cols)
+    target = st.selectbox("Select Target Variable", df.columns)
+    features = st.multiselect("Select Features", [c for c in num_cols if c != target], default=[c for c in num_cols if c != target][:5])
     
-    if st.button("Analyze Sentiment"):
-        with st.spinner("Analyzing..."):
-            sample = df[text_col].dropna().head(1000).astype(str)
-            sentiments = [TextBlob(txt).sentiment.polarity for txt in sample]
+    if not features:
+        st.warning("Select features to proceed.")
+        return
+
+    # Prepare Data
+    X, y = clean_xy(df, target, features)
+    is_classification = False
+    if df[target].dtype == 'object' or df[target].nunique() < 10:
+        is_classification = True
+        le = LabelEncoder()
+        y = le.fit_transform(y)
+        model = RandomForestClassifier(n_estimators=50, random_state=42)
+    else:
+        model = RandomForestRegressor(n_estimators=50, random_state=42)
+    
+    model.fit(X, y)
+    
+    tab1, tab2, tab3, tab4 = st.tabs(["SHAP", "LIME", "Partial Dependence", "Interactions"])
+    
+    # --- SHAP ---
+    with tab1:
+        st.subheader("SHAP (SHapley Additive exPlanations)")
+        if SHAP_AVAILABLE:
+            explainer = shap.TreeExplainer(model)
+            # Limit to 100 samples for performance
+            X_sample = X.sample(min(100, len(X)), random_state=42)
+            shap_values = explainer.shap_values(X_sample)
             
-            res_df = pd.DataFrame({'Text': sample, 'Polarity': sentiments})
-            res_df['Sentiment'] = res_df['Polarity'].apply(lambda x: 'Pos' if x > 0.1 else ('Neg' if x < -0.1 else 'Neu'))
+            if is_classification and isinstance(shap_values, list):
+                shap_values = shap_values[1] # Positive class
             
-            fig = px.histogram(res_df, x='Polarity', color='Sentiment', title="Sentiment Distribution")
+            st.write("**Summary Plot**")
+            fig, ax = plt.subplots()
+            shap.summary_plot(shap_values, X_sample, show=False)
+            st.pyplot(fig)
+            
+            st.write("**Waterfall Plot (First Sample)**")
+            fig2, ax2 = plt.subplots()
+            # Create Explanation object for waterfall
+            shap_exp = shap.Explanation(values=shap_values[0], 
+                                        base_values=explainer.expected_value[1] if is_classification and isinstance(explainer.expected_value, list) else explainer.expected_value, 
+                                        data=X_sample.iloc[0], 
+                                        feature_names=features)
+            shap.plots.waterfall(shap_exp, show=False)
+            st.pyplot(fig2)
+        else:
+            st.error("SHAP library not installed.")
+
+    # --- LIME ---
+    with tab2:
+        st.subheader("LIME (Local Interpretable Model-agnostic Explanations)")
+        if LIME_AVAILABLE:
+            idx = st.slider("Select Instance Index", 0, len(X)-1, 0)
+            
+            mode = 'classification' if is_classification else 'regression'
+            explainer = lime.lime_tabular.LimeTabularExplainer(
+                training_data=np.array(X),
+                feature_names=features,
+                class_names=[str(c) for c in np.unique(y)] if is_classification else None,
+                mode=mode
+            )
+            
+            if is_classification:
+                exp = explainer.explain_instance(X.iloc[idx], model.predict_proba, num_features=10)
+            else:
+                exp = explainer.explain_instance(X.iloc[idx], model.predict, num_features=10)
+            
+            st.components.v1.html(exp.as_html(), height=500, scrolling=True)
+        else:
+            st.error("LIME library not installed.")
+
+    # --- PDP ---
+    with tab3:
+        st.subheader("Partial Dependence Plots")
+        feature_to_plot = st.selectbox("Select Feature for PDP", features)
+        
+        common_params = {
+            "subsample": 50,
+            "n_jobs": 2,
+            "grid_resolution": 20,
+            "random_state": 0,
+        }
+        
+        display = partial_dependence(model, X, [feature_to_plot], kind="average", **common_params)
+        
+        fig = px.line(x=display['values'][0], y=display['average'][0], 
+                      title=f"Partial Dependence: {feature_to_plot}",
+                      labels={'x': feature_to_plot, 'y': 'Partial Dependence'})
+        safe_plot(fig)
+
+    # --- Interactions ---
+    with tab4:
+        st.subheader("Feature Interaction Heatmap (Correlation of Features)")
+        # Simple proxy for interaction: Correlation matrix of features
+        corr = X.corr()
+        fig = px.imshow(corr, text_auto=True, color_continuous_scale='RdBu_r', title="Feature Correlation Matrix")
+        safe_plot(fig)
+        st.caption("Note: High correlation between features often implies interaction effects in linear models, though tree models handle them natively.")
+
+def render_advanced_timeseries(df):
+    st.header("📈 Advanced Time Series")
+    
+    if df is None: return
+    _, _, date_cols = get_column_types(df)
+    num_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+    
+    if not date_cols:
+        st.error("No date columns found.")
+        return
+
+    date_col = st.selectbox("Date Column", date_cols)
+    val_col = st.selectbox("Value Column", num_cols)
+    
+    # Prepare TS Data
+    ts_df = df[[date_col, val_col]].dropna().sort_values(by=date_col)
+    ts_df = ts_df.set_index(date_col)
+    
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Prophet", "ARIMA", "Anomaly Detection", "VAR", "Changepoint"])
+    
+    # --- Prophet ---
+    with tab1:
+        st.subheader("Facebook Prophet")
+        if PROPHET_AVAILABLE:
+            periods = st.number_input("Forecast Periods", 30, 365, 30)
+            
+            prophet_df = ts_df.reset_index().rename(columns={date_col: 'ds', val_col: 'y'})
+            
+            m = Prophet()
+            m.fit(prophet_df)
+            future = m.make_future_dataframe(periods=periods)
+            forecast = m.predict(future)
+            
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=prophet_df['ds'], y=prophet_df['y'], name='Actual'))
+            fig.add_trace(go.Scatter(x=forecast['ds'], y=forecast['yhat'], name='Forecast'))
+            fig.add_trace(go.Scatter(x=forecast['ds'], y=forecast['yhat_upper'], name='Upper Bound', line=dict(width=0), showlegend=False))
+            fig.add_trace(go.Scatter(x=forecast['ds'], y=forecast['yhat_lower'], name='Lower Bound', line=dict(width=0), fill='tonexty', fillcolor='rgba(0,100,80,0.2)', showlegend=False))
             safe_plot(fig)
-            safe_dataframe(res_df.head(50), use_container_width=True)
-
-def render_topic_modeling(df):
-    """LDA Topic Modeling."""
-    st.markdown("### 📚 Topic Modeling (LDA)")
-    if df is None: return
-    if not TOPIC_MODELING_AVAILABLE: st.error("Sklearn Text modules missing."); return
-    
-    _, cat_cols, _ = get_column_types(df)
-    text_col = st.selectbox("Select Text Column", cat_cols, key='lda_text')
-    n_topics = st.slider("Topics", 2, 10, 3)
-    
-    if st.button("Extract Topics"):
-        vectorizer = CountVectorizer(max_features=1000, stop_words='english')
-        dtm = vectorizer.fit_transform(df[text_col].dropna().astype(str).head(5000))
-        lda = LatentDirichletAllocation(n_components=n_topics, random_state=42)
-        lda.fit(dtm)
-        
-        feature_names = vectorizer.get_feature_names_out()
-        for i, topic in enumerate(lda.components_):
-            top_words = [feature_names[i] for i in topic.argsort()[:-11:-1]]
-            st.write(f"**Topic {i+1}**: {', '.join(top_words)}")
-
-def render_ner(df):
-    """Named Entity Recognition."""
-    st.markdown("### 🏷️ Named Entity Recognition")
-    if df is None: return
-    if not SPACY_AVAILABLE: st.error("SpaCy not installed."); return
-
-    try: nlp = spacy.load("en_core_web_sm")
-    except: st.error("Model 'en_core_web_sm' not found."); return
-    
-    _, cat_cols, _ = get_column_types(df)
-    text_col = st.selectbox("Select Text Column", cat_cols, key='ner_text')
-    
-    if st.button("Extract Entities"):
-        text = " ".join(df[text_col].dropna().astype(str).head(100))
-        doc = nlp(text[:100000]) # Limit
-        ents = [(e.text, e.label_) for e in doc.ents]
-        ndf = pd.DataFrame(ents, columns=['Entity', 'Type'])
-        
-        fig = px.bar(ndf['Type'].value_counts(), title="Entity Types")
-        safe_plot(fig)
-        safe_dataframe(ndf.head(50), use_container_width=True)
-
-def render_wordcloud(df):
-    """Word Cloud."""
-    st.markdown("### ☁️ Word Cloud")
-    if df is None: return
-    if not WORDCLOUD_AVAILABLE: st.error("WordCloud not installed."); return
-    
-    _, cat_cols, _ = get_column_types(df)
-    text_col = st.selectbox("Select Text Column", cat_cols, key='wc_text')
-    
-    if st.button("Generate Cloud"):
-        text = " ".join(df[text_col].dropna().astype(str).head(5000))
-        wc = WordCloud(width=800, height=400, background_color='white').generate(text)
-        st.image(wc.to_array())
-
-def render_shap_analysis(df):
-    """SHAP Explainer."""
-    st.markdown("### 🔍 SHAP Explainability")
-    if df is None: return
-    if not SHAP_AVAILABLE or not XGBOOST_AVAILABLE: st.error("SHAP/XGBoost missing."); return
-    
-    num_cols, cat_cols, _ = get_column_types(df)
-    target = st.selectbox("Target", num_cols + cat_cols)
-    feats = st.multiselect("Features", num_cols, default=num_cols[:3])
-    
-    if st.button("Explain Model"):
-        data = df.dropna(subset=[target] + feats).sample(min(1000, len(df)))
-        X, y = data[feats], data[target]
-        
-        if y.dtype == 'object': 
-            y = LabelEncoder().fit_transform(y)
-            model = xgb.XGBClassifier(use_label_encoder=False, eval_metric='logloss')
+            
+            st.write("Forecast Components")
+            fig2 = m.plot_components(forecast)
+            st.pyplot(fig2)
         else:
-            model = xgb.XGBRegressor()
-            
-        model.fit(X, y)
-        explainer = shap.Explainer(model, X)
-        shap_values = explainer(X)
-        
-        st.subheader("Feature Importance")
-        # Creating a bar plot from mean abs shap values manually for stability
-        mean_shap = np.abs(shap_values.values).mean(axis=0)
-        sdf = pd.DataFrame({'Feature': feats, 'Importance': mean_shap}).sort_values('Importance', ascending=True)
-        fig = px.bar(sdf, x='Importance', y='Feature', orientation='h', title="SHAP Importance")
-        safe_plot(fig)
+            st.error("Prophet not installed.")
 
-def render_automl(df):
-    """AutoML using RandomizedSearch."""
-    st.markdown("### 🤖 AutoML")
-    if df is None: return
-    if not AUTOML_AVAILABLE: st.error("Sklearn missing."); return
-    
-    num_cols, cat_cols, _ = get_column_types(df)
-    target = st.selectbox("Target", num_cols + cat_cols, key='automl_tgt')
-    feats = st.multiselect("Features", num_cols, default=num_cols[:3], key='automl_ft')
-    
-    if st.button("Run AutoML"):
-        data = df.dropna(subset=[target] + feats)
-        X, y = data[feats], data[target]
-        is_class = False
-        if y.dtype == 'object' or y.nunique() < 10:
-            is_class = True
-            y = LabelEncoder().fit_transform(y)
+    # --- ARIMA ---
+    with tab2:
+        st.subheader("ARIMA / SARIMA")
+        if STATSMODELS_ADV_AVAILABLE:
+            p = st.number_input("p (AR)", 0, 5, 1)
+            d = st.number_input("d (I)", 0, 2, 1)
+            q = st.number_input("q (MA)", 0, 5, 1)
             
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
-        
-        models = []
-        if is_class:
-            models = [
-                ('RF', RandomForestClassifier(), {'n_estimators': [50, 100]}),
-                ('GB', GradientBoostingClassifier(), {'learning_rate': [0.01, 0.1]})
-            ]
-        else:
-            models = [
-                ('RF', RandomForestRegressor(), {'n_estimators': [50, 100]}),
-                ('LinReg', LinearRegression(), {})
-            ]
-            
-        results = []
-        best_model = None
-        best_score = -np.inf
-        
-        for name, model, params in models:
-            search = RandomizedSearchCV(model, params, n_iter=5, cv=3)
-            search.fit(X_train, y_train)
-            score = search.score(X_test, y_test)
-            results.append({'Model': name, 'Score': score, 'Params': str(search.best_params_)})
-            if score > best_score:
-                best_score = score
-                best_model = search.best_estimator_
+            if st.button("Fit ARIMA"):
+                model = ARIMA(ts_df, order=(p,d,q))
+                model_fit = model.fit()
+                st.text(model_fit.summary())
                 
-        st.success(f"Best Model: {type(best_model).__name__} (Score: {best_score:.4f})")
-        safe_dataframe(pd.DataFrame(results), use_container_width=True)
+                # Forecast
+                forecast_steps = 30
+                forecast = model_fit.forecast(steps=forecast_steps)
+                
+                fig = px.line(y=ts_df[val_col], title="Historical Data")
+                fig.add_scatter(x=pd.date_range(start=ts_df.index[-1], periods=forecast_steps+1, freq='D')[1:], y=forecast, name='Forecast')
+                safe_plot(fig)
+        else:
+            st.error("Statsmodels not installed.")
 
-def render_neural_network(df):
-    """MLP Builder."""
-    st.markdown("### 🧠 Neural Network Builder")
+    # --- Anomaly Detection ---
+    with tab3:
+        st.subheader("Anomaly Detection (STL Residuals)")
+        try:
+            stl = seasonal_decompose(ts_df[val_col], model='additive', period=12)
+            resid = stl.resid.dropna()
+            threshold = resid.std() * 3
+            anomalies = resid[abs(resid) > threshold]
+            
+            fig = make_subplots(rows=2, cols=1)
+            fig.add_trace(go.Scatter(x=ts_df.index, y=ts_df[val_col], name="Original"), row=1, col=1)
+            fig.add_trace(go.Scatter(x=anomalies.index, y=ts_df.loc[anomalies.index][val_col], mode='markers', marker=dict(color='red', size=10), name="Anomaly"), row=1, col=1)
+            fig.add_trace(go.Scatter(x=resid.index, y=resid, name="Residuals"), row=2, col=1)
+            safe_plot(fig)
+            
+            st.write(f"Detected {len(anomalies)} anomalies.")
+        except Exception as e:
+            st.error(f"STL Decomposition failed: {e}. Ensure data has frequency.")
+
+    # --- VAR ---
+    with tab4:
+        st.subheader("Multi-Variate Time Series (VAR)")
+        vars_select = st.multiselect("Select Variables for VAR", num_cols, default=num_cols[:2])
+        if len(vars_select) > 1:
+            var_data = df[vars_select].dropna()
+            model = VAR(var_data)
+            results = model.fit(2)
+            st.text(results.summary())
+        else:
+            st.warning("Select at least 2 variables.")
+
+    # --- Changepoint ---
+    with tab5:
+        st.subheader("Changepoint Detection (Rolling Statistics)")
+        window = st.slider("Rolling Window", 5, 50, 14)
+        rolling_mean = ts_df[val_col].rolling(window=window).mean()
+        rolling_std = ts_df[val_col].rolling(window=window).std()
+        
+        # Simple logic: if value deviates significantly from rolling mean
+        deviations = abs(ts_df[val_col] - rolling_mean) > (3 * rolling_std)
+        changepoints = ts_df[deviations]
+        
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=ts_df.index, y=ts_df[val_col], name="Data"))
+        fig.add_trace(go.Scatter(x=changepoints.index, y=changepoints[val_col], mode='markers', name="Potential Structural Break", marker=dict(color='orange')))
+        safe_plot(fig)
+
+def render_advanced_stats(df):
+    st.header("🧪 Advanced Statistical Testing")
     if df is None: return
-    if not MLP_AVAILABLE: st.error("Sklearn MLP missing."); return
     
     num_cols, cat_cols, _ = get_column_types(df)
-    target = st.selectbox("Target", num_cols, key='mlp_tgt')
-    feats = st.multiselect("Features", num_cols, key='mlp_feat')
     
-    hidden = st.text_input("Hidden Layers (e.g. 64,32)", "64,32")
-    layers = tuple(map(int, hidden.split(',')))
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Post-Hoc", "Repeated Measures", "Mixed Effects", "Bayesian A/B", "Bootstrap"])
     
-    if st.button("Train MLP"):
-        data = df.dropna(subset=[target] + feats)
-        X, y = data[feats], data[target]
-        X = StandardScaler().fit_transform(X)
-        X_train, X_test, y_train, y_test = train_test_split(X, y)
+    # --- Post-Hoc ---
+    with tab1:
+        st.subheader("Post-Hoc Tests (Tukey HSD)")
+        if len(cat_cols) > 0:
+            group_col = st.selectbox("Group", cat_cols, key='ph_g')
+            val_col = st.selectbox("Value", num_cols, key='ph_v')
+            
+            if st.button("Run Tukey HSD"):
+                tukey = pairwise_tukeyhsd(endog=df[val_col], groups=df[group_col], alpha=0.05)
+                st.text(tukey.summary())
+                fig = tukey.plot_simultaneous()
+                st.pyplot(fig)
+        else:
+            st.warning("No categorical columns.")
+
+    # --- Repeated Measures ---
+    with tab2:
+        st.subheader("Repeated Measures ANOVA")
+        st.info("Requires: Subject ID, Within-Subject Factor, Dependent Variable")
+        subj = st.selectbox("Subject ID", df.columns, key='rm_s')
+        within = st.selectbox("Within-Subject Factor", df.columns, key='rm_w')
+        dep = st.selectbox("Dependent Variable", num_cols, key='rm_d')
         
-        mlp = MLPRegressor(hidden_layer_sizes=layers, max_iter=500, random_state=42)
-        mlp.fit(X_train, y_train)
-        score = mlp.score(X_test, y_test)
+        if st.button("Run RM ANOVA"):
+            try:
+                aovrm = AnovaRM(df, dep, subj, within=[within])
+                res = aovrm.fit()
+                st.text(res.summary())
+            except Exception as e:
+                st.error(f"Error: {e}")
+
+    # --- Mixed Effects ---
+    with tab3:
+        st.subheader("Mixed Effects Models")
+        formula = st.text_input("Formula (e.g., Weight ~ Time)", key='me_f')
+        group = st.selectbox("Group (Random Effect)", df.columns, key='me_g')
         
-        st.metric("Test R²", f"{score:.4f}")
+        if st.button("Fit MixedLM"):
+            try:
+                model = smf.mixedlm(formula, df, groups=df[group])
+                result = model.fit()
+                st.text(result.summary())
+            except Exception as e:
+                st.error(f"Error: {e}")
+
+    # --- Bayesian A/B ---
+    with tab4:
+        st.subheader("Bayesian A/B Testing")
+        col_a = st.number_input("Successes A", 10)
+        n_a = st.number_input("Total A", 100)
+        col_b = st.number_input("Successes B", 12)
+        n_b = st.number_input("Total B", 100)
         
-        loss = mlp.loss_curve_
-        fig = px.line(x=range(len(loss)), y=loss, title="Training Loss")
+        x = np.linspace(0, 1, 1000)
+        pdf_a = stats.beta.pdf(x, col_a + 1, n_a - col_a + 1)
+        pdf_b = stats.beta.pdf(x, col_b + 1, n_b - col_b + 1)
+        
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=x, y=pdf_a, name='Posterior A', fill='tozeroy'))
+        fig.add_trace(go.Scatter(x=x, y=pdf_b, name='Posterior B', fill='tozeroy'))
         safe_plot(fig)
+        
+        prob_b_better = (np.random.beta(col_b+1, n_b-col_b+1, 10000) > np.random.beta(col_a+1, n_a-col_a+1, 10000)).mean()
+        st.metric("Probability B is better than A", f"{prob_b_better:.2%}")
+
+    # --- Bootstrap ---
+    with tab5:
+        st.subheader("Non-Parametric Bootstrap")
+        col = st.selectbox("Column", num_cols, key='bs_c')
+        n_boot = st.number_input("Iterations", 100, 10000, 1000)
+        
+        if st.button("Run Bootstrap"):
+            data = df[col].dropna().values
+            means = []
+            for _ in range(n_boot):
+                sample = np.random.choice(data, size=len(data), replace=True)
+                means.append(np.mean(sample))
+            
+            lower = np.percentile(means, 2.5)
+            upper = np.percentile(means, 97.5)
+            
+            st.metric("Bootstrap Mean", f"{np.mean(means):.2f}")
+            st.write(f"95% CI: [{lower:.2f}, {upper:.2f}]")
+            fig = px.histogram(x=means, title="Bootstrap Distribution")
+            safe_plot(fig)
+
+def render_deep_learning(df):
+    st.header("🧠 Deep Learning & Neural Networks")
+    if df is None: return
+    num_cols, cat_cols, _ = get_column_types(df)
+    
+    target = st.selectbox("Target", df.columns, key='dl_t')
+    features = st.multiselect("Features", [c for c in num_cols if c != target], key='dl_f')
+    
+    if not features: return
+    
+    X, y = clean_xy(df, target, features)
+    is_class = df[target].dtype == 'object' or df[target].nunique() < 10
+    
+    if is_class:
+        le = LabelEncoder()
+        y = le.fit_transform(y)
+    
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
+    scaler = StandardScaler()
+    X_train = scaler.fit_transform(X_train)
+    X_test = scaler.transform(X_test)
+    
+    tab1, tab2, tab3, tab4 = st.tabs(["AutoML", "NN Builder", "Hyperparameter Tuning", "Ensembling"])
+    
+    # --- AutoML ---
+    with tab1:
+        st.subheader("AutoML Integration")
+        if st.button("Run Simple AutoML"):
+            models = []
+            if is_class:
+                models = [
+                    ("LogReg", LogisticRegression()),
+                    ("RF", RandomForestClassifier()),
+                    ("GB", GradientBoostingClassifier())
+                ]
+            else:
+                models = [
+                    ("LinReg", LinearRegression()),
+                    ("RF", RandomForestRegressor()),
+                    ("GB", GradientBoostingRegressor())
+                ]
+            
+            results = []
+            for name, model in models:
+                model.fit(X_train, y_train)
+                score = model.score(X_test, y_test)
+                results.append({"Model": name, "Score": score})
+            
+            st.dataframe(pd.DataFrame(results).sort_values("Score", ascending=False))
+
+    # --- NN Builder ---
+    with tab2:
+        st.subheader("Neural Network Builder (MLP)")
+        layers_str = st.text_input("Hidden Layers (comma sep)", "100,50")
+        layers = tuple(map(int, layers_str.split(',')))
+        activation = st.selectbox("Activation", ['relu', 'tanh', 'logistic'])
+        
+        if st.button("Train MLP"):
+            if is_class:
+                mlp = MLPClassifier(hidden_layer_sizes=layers, activation=activation, max_iter=500)
+            else:
+                mlp = MLPRegressor(hidden_layer_sizes=layers, activation=activation, max_iter=500)
+            
+            mlp.fit(X_train, y_train)
+            st.success(f"Training Complete. Score: {mlp.score(X_test, y_test):.4f}")
+            
+            fig = px.line(y=mlp.loss_curve_, title="Loss Curve")
+            safe_plot(fig)
+
+    # --- Hyperparameter Tuning ---
+    with tab3:
+        st.subheader("Hyperparameter Tuning (Optuna/GridSearch)")
+        if OPTUNA_AVAILABLE:
+            st.info("Using Optuna")
+            if st.button("Optimize RF"):
+                def objective(trial):
+                    n_estimators = trial.suggest_int('n_estimators', 10, 100)
+                    max_depth = trial.suggest_int('max_depth', 2, 32)
+                    if is_class:
+                        clf = RandomForestClassifier(n_estimators=n_estimators, max_depth=max_depth)
+                    else:
+                        clf = RandomForestRegressor(n_estimators=n_estimators, max_depth=max_depth)
+                    return cross_val_score(clf, X_train, y_train, n_jobs=-1, cv=3).mean()
+
+                study = optuna.create_study(direction='maximize')
+                study.optimize(objective, n_trials=10)
+                st.write("Best Params:", study.best_params)
+        else:
+            st.info("Optuna not found. Using RandomizedSearchCV")
+            if st.button("Optimize RF (RandomSearch)"):
+                param_dist = {'n_estimators': [50, 100, 200], 'max_depth': [None, 10, 20]}
+                if is_class:
+                    clf = RandomForestClassifier()
+                else:
+                    clf = RandomForestRegressor()
+                search = RandomizedSearchCV(clf, param_dist, n_iter=5, cv=3)
+                search.fit(X_train, y_train)
+                st.write("Best Params:", search.best_params_)
+
+    # --- Ensembling ---
+    with tab4:
+        st.subheader("Model Ensembling")
+        if st.button("Train Voting Ensemble"):
+            if is_class:
+                clf1 = LogisticRegression()
+                clf2 = RandomForestClassifier()
+                eclf = VotingClassifier(estimators=[('lr', clf1), ('rf', clf2)], voting='soft')
+                eclf.fit(X_train, y_train)
+                st.write(f"Ensemble Accuracy: {eclf.score(X_test, y_test):.4f}")
+            else:
+                reg1 = LinearRegression()
+                reg2 = RandomForestRegressor()
+                ereg = VotingRegressor(estimators=[('lr', reg1), ('rf', reg2)])
+                ereg.fit(X_train, y_train)
+                st.write(f"Ensemble R2: {ereg.score(X_test, y_test):.4f}")
+
+def render_nlp_suite(df):
+    st.header("📝 NLP Suite")
+    if df is None: return
+    
+    text_cols = df.select_dtypes(include=['object']).columns.tolist()
+    if not text_cols:
+        st.error("No text columns found.")
+        return
+        
+    text_col = st.selectbox("Select Text Column", text_cols)
+    text_data = df[text_col].astype(str).dropna()
+    
+    tab1, tab2, tab3, tab4 = st.tabs(["Sentiment", "Topic Modeling", "NER", "Word Cloud"])
+    
+    # --- Sentiment ---
+    with tab1:
+        st.subheader("Text Column Analysis (Sentiment)")
+        if TEXTBLOB_AVAILABLE:
+            if st.button("Analyze Sentiment"):
+                polarities = [TextBlob(text).sentiment.polarity for text in text_data]
+                df['polarity'] = polarities
+                fig = px.histogram(x=polarities, title="Sentiment Polarity Distribution")
+                safe_plot(fig)
+                st.write("Top Positive:", df.nlargest(5, 'polarity')[[text_col, 'polarity']])
+                st.write("Top Negative:", df.nsmallest(5, 'polarity')[[text_col, 'polarity']])
+        else:
+            st.error("TextBlob not installed.")
+
+    # --- Topic Modeling ---
+    with tab2:
+        st.subheader("Topic Modeling (LDA)")
+        n_topics = st.slider("Number of Topics", 2, 10, 3)
+        if st.button("Run LDA"):
+            cv = CountVectorizer(max_df=0.95, min_df=2, stop_words='english')
+            dtm = cv.fit_transform(text_data)
+            lda = LatentDirichletAllocation(n_components=n_topics, random_state=42)
+            lda.fit(dtm)
+            
+            for index, topic in enumerate(lda.components_):
+                st.write(f"**Topic {index}**")
+                top_words = [cv.get_feature_names_out()[i] for i in topic.argsort()[-10:]]
+                st.write(", ".join(top_words))
+
+    # --- NER ---
+    with tab3:
+        st.subheader("Named Entity Recognition")
+        if SPACY_AVAILABLE:
+            if st.button("Extract Entities"):
+                nlp = spacy.load("en_core_web_sm")
+                # Limit to first 50 docs for speed
+                docs = list(nlp.pipe(text_data[:50]))
+                entities = []
+                for doc in docs:
+                    for ent in doc.ents:
+                        entities.append((ent.text, ent.label_))
+                
+                ent_df = pd.DataFrame(entities, columns=['Entity', 'Label'])
+                st.dataframe(ent_df['Label'].value_counts())
+                st.dataframe(ent_df.head(20))
+        else:
+            st.error("Spacy not installed.")
+
+    # --- Word Cloud ---
+    with tab4:
+        st.subheader("Word Cloud Generation")
+        if WORDCLOUD_AVAILABLE:
+            if st.button("Generate Cloud"):
+                text = " ".join(text_data)
+                wc = WordCloud(width=800, height=400, background_color='white').generate(text)
+                st.image(wc.to_array())
+        else:
+            st.error("WordCloud not installed.")
+
+def render_bi_analytics(df):
+    st.header("💼 Business Intelligence")
+    if df is None: return
+    
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["CLV", "Churn", "Retention", "Price Elasticity", "What-If"])
+    
+    # --- CLV ---
+    with tab1:
+        st.subheader("Customer Lifetime Value")
+        if LIFETIMES_AVAILABLE:
+            id_col = st.selectbox("Customer ID", df.columns, key='clv_id')
+            date_col = st.selectbox("Date", df.columns, key='clv_date')
+            val_col = st.selectbox("Value", df.columns, key='clv_val')
+            
+            if st.button("Calculate CLV"):
+                rfm = summary_data_from_transaction_data(df, id_col, date_col, monetary_value_col=val_col)
+                bgf = BetaGeoFitter(penalizer_coef=0.0)
+                bgf.fit(rfm['frequency'], rfm['recency'], rfm['T'])
+                
+                rfm['predicted_purchases'] = bgf.conditional_expected_number_of_purchases_up_to_time(30, rfm['frequency'], rfm['recency'], rfm['T'])
+                
+                ggf = GammaGammaFitter(penalizer_coef=0)
+                ggf.fit(rfm['frequency'], rfm['monetary_value'])
+                rfm['clv'] = ggf.customer_lifetime_value(bgf, rfm['frequency'], rfm['recency'], rfm['T'], rfm['monetary_value'], time=12, discount_rate=0.01)
+                
+                st.dataframe(rfm.sort_values('clv', ascending=False).head())
+        else:
+            st.error("Lifetimes library not installed.")
+
+    # --- Churn ---
+    with tab2:
+        st.subheader("Churn Prediction Pipeline")
+        target = st.selectbox("Churn Target (Binary)", df.columns, key='churn_t')
+        features = st.multiselect("Features", df.columns, key='churn_f')
+        
+        if st.button("Predict Churn"):
+            X, y = clean_xy(df, target, features)
+            X_train, X_test, y_train, y_test = train_test_split(X, y)
+            clf = RandomForestClassifier()
+            clf.fit(X_train, y_train)
+            
+            st.write("Accuracy:", clf.score(X_test, y_test))
+            feat_imp = pd.Series(clf.feature_importances_, index=features).sort_values(ascending=False)
+            st.bar_chart(feat_imp)
+
+    # --- Retention ---
+    with tab3:
+        st.subheader("Retention Cohort Heatmaps")
+        st.info("Requires Date and User ID")
+        date_c = st.selectbox("Date", df.columns, key='ret_d')
+        id_c = st.selectbox("ID", df.columns, key='ret_i')
+        
+        if st.button("Generate Cohort"):
+            df['OrderPeriod'] = df[date_c].apply(lambda x: x.strftime('%Y-%m'))
+            df.set_index(id_c, inplace=True)
+            df['CohortGroup'] = df.groupby(level=0)[date_c].min().apply(lambda x: x.strftime('%Y-%m'))
+            df.reset_index(inplace=True)
+            
+            grouped = df.groupby(['CohortGroup', 'OrderPeriod'])
+            cohorts = grouped.agg({id_c: pd.Series.nunique})
+            cohorts.rename(columns={id_c: 'TotalUsers'}, inplace=True)
+            
+            def cohort_period(df):
+                df['CohortPeriod'] = np.arange(len(df)) + 1
+                return df
+            
+            cohorts = cohorts.groupby(level=0).apply(cohort_period)
+            cohort_matrix = cohorts.pivot_table(index='CohortGroup', columns='CohortPeriod', values='TotalUsers')
+            cohort_size = cohort_matrix.iloc[:,0]
+            retention = cohort_matrix.divide(cohort_size, axis=0)
+            
+            fig = px.imshow(retention, text_auto='.0%', color_continuous_scale='Blues')
+            safe_plot(fig)
+
+    # --- Price Elasticity ---
+    with tab4:
+        st.subheader("Price Elasticity Analysis")
+        price_col = st.selectbox("Price Column", df.select_dtypes(include=np.number).columns, key='pe_p')
+        qty_col = st.selectbox("Quantity Column", df.select_dtypes(include=np.number).columns, key='pe_q')
+        
+        if st.button("Calculate Elasticity"):
+            # Log-Log model
+            df_log = df[[price_col, qty_col]].dropna()
+            df_log = df_log[(df_log[price_col] > 0) & (df_log[qty_col] > 0)]
+            df_log['log_price'] = np.log(df_log[price_col])
+            df_log['log_qty'] = np.log(df_log[qty_col])
+            
+            model = smf.ols("log_qty ~ log_price", data=df_log).fit()
+            elasticity = model.params['log_price']
+            
+            st.metric("Price Elasticity", f"{elasticity:.2f}")
+            st.write("Interpretation: A 1% increase in price leads to a {:.2f}% change in quantity.".format(elasticity))
+            
+            fig = px.scatter(df, x=price_col, y=qty_col, trendline="ols", log_x=True, log_y=True)
+            safe_plot(fig)
+
+    # --- What-If ---
+    with tab5:
+        st.subheader("What-If Scenario Simulator")
+        target_wi = st.selectbox("Target Outcome", df.columns, key='wi_t')
+        features_wi = st.multiselect("Drivers", [c for c in df.select_dtypes(include=np.number).columns if c != target_wi], key='wi_f')
+        
+        if features_wi:
+            X, y = clean_xy(df, target_wi, features_wi)
+            model = LinearRegression()
+            model.fit(X, y)
+            
+            st.write("Adjust sliders to simulate outcome:")
+            input_data = {}
+            for feat in features_wi:
+                val = st.slider(feat, float(df[feat].min()), float(df[feat].max()), float(df[feat].mean()))
+                input_data[feat] = val
+            
+            pred = model.predict(pd.DataFrame([input_data]))[0]
+            st.metric("Predicted Outcome", f"{pred:.2f}")
 
 # ============================================================================
 # ADD TO MAIN SIDEBAR NAVIGATION
@@ -3019,18 +3495,17 @@ PHASE_ICONS = {
                 'Multivariate':'🕸️ Multivariate',
                 'Survival':'⏳ Survival',
                 'Power Analysis':'🔋 Power',
-                # Advanced Analytics
+                # Advanced Analytics 2.0
                 '3D Scatter': '🌐 3D Scatter',
                 'Sankey Diagram': '🔀 Sankey',
                 'Network Graph': '🕸️ Network',
                 'PDF Report': '📄 PDF Report',
-                'Text Analysis': '📝 Sentiment',
-                'Topic Modeling': '📚 Topics',
-                'NER': '🏷️ NER',
-                'Word Cloud': '☁️ Word Cloud',
-                'SHAP': '🔍 SHAP',
-                'AutoML': '🤖 AutoML',
-                'Neural Network': '🧠 Neural Net'
+                'Explainability': '🔍 Explainability',
+                'Timeseries Advanced': '📈 Time Series+',
+                'Statistics Advanced': '🧪 Statistics+',
+                'Deep Learning': '🧠 Deep Learning',
+                'NLP Suite': '📝 NLP Suite',
+                'BI Analytics': '💼 BI Analytics'
             }
 
 def sidebar_processor():
@@ -3211,13 +3686,14 @@ def main():
     elif phase == 'Sankey Diagram': safe_render(render_sankey_diagram, df)
     elif phase == 'Network Graph': safe_render(render_network_graph, df)
     elif phase == 'PDF Report': safe_render(render_pdf_report, df)
-    elif phase == 'Text Analysis': safe_render(render_text_analysis, df)
-    elif phase == 'Topic Modeling': safe_render(render_topic_modeling, df)
-    elif phase == 'NER': safe_render(render_ner, df)
-    elif phase == 'Word Cloud': safe_render(render_wordcloud, df)
-    elif phase == 'SHAP': safe_render(render_shap_analysis, df)
-    elif phase == 'AutoML': safe_render(render_automl, df)
-    elif phase == 'Neural Network': safe_render(render_neural_network, df)
+    
+    # Advanced Suites
+    elif phase == 'Explainability': safe_render(render_explainability, df)
+    elif phase == 'Timeseries Advanced': safe_render(render_advanced_timeseries, df)
+    elif phase == 'Statistics Advanced': safe_render(render_advanced_stats, df)
+    elif phase == 'Deep Learning': safe_render(render_deep_learning, df)
+    elif phase == 'NLP Suite': safe_render(render_nlp_suite, df)
+    elif phase == 'BI Analytics': safe_render(render_bi_analytics, df)
 
 if __name__ == "__main__":
     main()
