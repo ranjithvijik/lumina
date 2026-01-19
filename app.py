@@ -67,7 +67,7 @@ st.set_page_config(
 
 st.markdown("""
     <style>
-        .stApp { background-color: #f4f6f9; }
+        .stApp { background-color: #f4f6f9; color: #31333F; }
         .phase-container {
             background: linear-gradient(90deg, #2c3e50 0%, #4ca1af 100%);
             padding: 20px;
@@ -81,6 +81,7 @@ st.markdown("""
         div[data-testid="stMetric"] {
             background: #ffffff; border-radius: 12px; padding: 15px;
             box-shadow: 0 4px 6px rgba(0,0,0,0.05); border: 1px solid #e1e4e8;
+            color: #31333F !important;
         }
         .stat-summary {
             background-color: #f0f4f8; padding: 12px; border-left: 4px solid #00ADB5;
@@ -90,6 +91,7 @@ st.markdown("""
         .stTabs [data-baseweb="tab"] {
             height: 50px; white-space: pre-wrap; background-color: #fff;
             border-radius: 4px 4px 0px 0px; gap: 1px; padding-top: 10px; padding-bottom: 10px;
+            color: #31333F !important;
         }
     </style>
 """, unsafe_allow_html=True)
