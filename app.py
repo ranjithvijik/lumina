@@ -239,21 +239,94 @@ st.markdown("""
 # ============================================================================
 
 @st.cache_data(show_spinner=False)
+def find_valid_header_row(sample_df):
+    """
+    Heuristic to find the most likely header row in a dataframe sample.
+    Returns 0-indexed row number to use as header.
+    """
+    best_row = 0
+    max_score = -1
+    
+    # Check first 20 rows or length of sample
+    limit = min(20, len(sample_df))
+    
+    for i in range(limit):
+        row = sample_df.iloc[i]
+        
+        # Criteria for a good header:
+        # 1. Row is mostly complete (few NaNs) - Weight 1.0
+        # 2. Values are Strings (Column names are text) - Weight 2.0
+        # 3. Values are Unique (Column names shouldn't repeat) - Weight 0.5
+        
+        non_null_count = row.count()
+        str_count = sum(isinstance(x, str) for x in row.dropna())
+        unique_count = row.nunique()
+        total_cols = len(row)
+        
+        # Normalized scores
+        completeness = non_null_count / total_cols if total_cols > 0 else 0
+        string_density = str_count / total_cols if total_cols > 0 else 0
+        
+        score = (completeness * 1) + (string_density * 2) + (unique_count * 0.1)
+        
+        # Penalty: If row looks purely numeric, it's likely data, not header
+        try:
+            pd.to_numeric(row.dropna())
+            is_numeric = True
+            score -= 2 # Heavy penalty for numeric rows
+        except:
+            is_numeric = False
+            
+        if score > max_score:
+            max_score = score
+            best_row = i
+            
+    return best_row
+
+@st.cache_data(show_spinner=False)
 def parse_uploaded_file(uploaded_file):
-    """Universal file parser handling multiple formats and multi-sheet Excel files."""
+    """Universal parser with robust header detection."""
     try:
         filename = uploaded_file.name.lower()
         
+        # --- EXCEL (.XLSX, .XLS) ---
         if filename.endswith(('.xlsx', '.xls')):
-            xls_dict = pd.read_excel(uploaded_file, sheet_name=None)
-            if len(xls_dict) > 1:
-                return xls_dict, "multi"
+            xls = pd.ExcelFile(uploaded_file)
+            sheet_names = xls.sheet_names
+            parsed_sheets = {}
+            
+            for sheet in sheet_names:
+                # 1. Read sample to detect header
+                sample = pd.read_excel(xls, sheet_name=sheet, header=None, nrows=20)
+                if not sample.empty:
+                    header_idx = find_valid_header_row(sample)
+                    # 2. Read full sheet with correct header
+                    df = pd.read_excel(xls, sheet_name=sheet, header=header_idx)
+                    parsed_sheets[sheet] = df
+            
+            if len(parsed_sheets) == 1:
+                return list(parsed_sheets.values())[0], "single"
+            elif len(parsed_sheets) > 1:
+                return parsed_sheets, "multi"
             else:
-                return list(xls_dict.values())[0], "single"
-        elif filename.endswith('.csv'):
-            return pd.read_csv(uploaded_file), "single"
-        elif filename.endswith('.tsv') or filename.endswith('.txt'):
-            return pd.read_csv(uploaded_file, sep='\t'), "single"
+                 return None, "error"
+
+        # --- CSV / TEXT ---
+        elif filename.endswith(('.csv', '.txt', '.tsv')):
+            sep = '\t' if filename.endswith(('.tsv', '.txt')) else ','
+            
+            # 1. Read sample
+            uploaded_file.seek(0)
+            sample = pd.read_csv(uploaded_file, sep=sep, header=None, nrows=20)
+            
+            # 2. Detect Header
+            header_idx = find_valid_header_row(sample)
+            
+            # 3. Read Full
+            uploaded_file.seek(0)
+            return pd.read_csv(uploaded_file, sep=sep, header=header_idx), "single"
+
+        # --- OTHER FORMATS ---
         elif filename.endswith('.json'):
             return pd.read_json(uploaded_file), "single"
         elif filename.endswith('.parquet'):
