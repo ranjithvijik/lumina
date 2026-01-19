@@ -54,6 +54,77 @@ except ImportError:
     LIFELINES_AVAILABLE = False
 
 
+# Advanced NLP Imports
+try:
+    from textblob import TextBlob
+    TEXTBLOB_AVAILABLE = True
+except ImportError:
+    TEXTBLOB_AVAILABLE = False
+
+try:
+    import spacy
+    SPACY_AVAILABLE = True
+except ImportError:
+    SPACY_AVAILABLE = False
+
+try:
+    from wordcloud import WordCloud
+    WORDCLOUD_AVAILABLE = True
+except ImportError:
+    WORDCLOUD_AVAILABLE = False
+
+try:
+    from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
+    from sklearn.decomposition import LatentDirichletAllocation, NMF
+    TOPIC_MODELING_AVAILABLE = True
+except ImportError:
+    TOPIC_MODELING_AVAILABLE = False
+
+# Neural Network Imports
+try:
+    from sklearn.neural_network import MLPClassifier, MLPRegressor
+    MLP_AVAILABLE = True
+except ImportError:
+    MLP_AVAILABLE = False
+
+# PDF Generation
+try:
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import letter, A4
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image, PageBreak
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import inch
+    REPORTLAB_AVAILABLE = True
+except ImportError:
+    REPORTLAB_AVAILABLE = False
+
+# Network Analysis
+try:
+    import networkx as nx
+    NETWORKX_AVAILABLE = True
+except ImportError:
+    NETWORKX_AVAILABLE = False
+
+# AutoML
+try:
+    from sklearn.model_selection import RandomizedSearchCV
+    AUTOML_AVAILABLE = True
+except ImportError:
+    AUTOML_AVAILABLE = False
+
+# SHAP & XGBoost Availability Check
+try:
+    import xgboost as xgb
+    XGBOOST_AVAILABLE = True
+except ImportError:
+    XGBOOST_AVAILABLE = False
+
+try:
+    import shap
+    SHAP_AVAILABLE = True
+except ImportError:
+    SHAP_AVAILABLE = False
+
 
 # ============================================================================
 # 1. CONFIGURATION & THEME
@@ -2577,6 +2648,350 @@ def render_smart_narrative(df):
 # 4. MAIN ROUTING
 # ============================================================================
 # ============================================================================
+# 5. ADVANCED ANALYTICS (NEW MODULES)
+# ============================================================================
+
+def render_3d_scatter(df):
+    """Interactive 3D Scatter Plot visualization."""
+    with stat_box("3D Visualization Config"):
+        st.markdown("### 🌐 3D Scatter Plot")
+        
+        if df is None: return
+        
+        num_cols, cat_cols, _ = get_column_types(df)
+        
+        if len(num_cols) < 3:
+            st.warning("Need at least 3 numeric columns for 3D visualization.")
+            return
+        
+        col1, col2, col3 = st.columns(3)
+        x_col = col1.selectbox("X Axis", num_cols, index=0)
+        y_col = col2.selectbox("Y Axis", num_cols, index=min(1, len(num_cols)-1))
+        z_col = col3.selectbox("Z Axis", num_cols, index=min(2, len(num_cols)-1))
+        
+        col4, col5 = st.columns(2)
+        color_col = col4.selectbox("Color By", ["None"] + cat_cols + num_cols)
+        size_col = col5.selectbox("Size By", ["None"] + num_cols)
+        
+        if color_col == "None": color_col = None
+        if size_col == "None": size_col = None
+
+    # Create 3D scatter plot
+    plot_df = df.copy()
+    if len(plot_df) > 5000:
+        st.info(f"Sampling 5000 points from {len(plot_df)} for performance.")
+        plot_df = plot_df.sample(5000, random_state=42)
+    
+    fig = px.scatter_3d(plot_df, x=x_col, y=y_col, z=z_col,
+                        color=color_col, size=size_col,
+                        opacity=0.7, title=f"3D Scatter: {x_col} vs {y_col} vs {z_col}")
+    
+    safe_plot(fig, height=700)
+
+def render_sankey_diagram(df):
+    """Interactive Sankey Diagram for flow visualization."""
+    st.markdown("### 🔀 Sankey Diagram")
+    if df is None: return
+    
+    num_cols, cat_cols, _ = get_column_types(df)
+    
+    if len(cat_cols) < 2:
+        st.warning("Need at least 2 categorical columns.")
+        return
+        
+    col1, col2, col3 = st.columns(3)
+    source = col1.selectbox("Source", cat_cols, index=0)
+    target = col2.selectbox("Target", cat_cols, index=min(1, len(cat_cols)-1))
+    value = col3.selectbox("Value (Optional)", ["Count"] + num_cols)
+    
+    if st.button("Generate Sankey"):
+        if value == "Count":
+            flow = df.groupby([source, target]).size().reset_index(name='value')
+        else:
+            flow = df.groupby([source, target])[value].sum().reset_index(name='value')
+            
+        # Create labels
+        all_nodes = list(pd.concat([flow[source], flow[target]]).unique())
+        node_map = {node: i for i, node in enumerate(all_nodes)}
+        
+        link_source = [node_map[x] for x in flow[source]]
+        link_target = [node_map[x] for x in flow[target]]
+        link_value = flow['value']
+        
+        fig = go.Figure(data=[go.Sankey(
+            node=dict(label=all_nodes, pad=15, thickness=20, line=dict(color="black", width=0.5)),
+            link=dict(source=link_source, target=link_target, value=link_value)
+        )])
+        safe_plot(fig)
+
+def render_network_graph(df):
+    """Network Graph using NetworkX."""
+    st.markdown("### 🕸️ Network Graph")
+    if df is None: return
+    if not NETWORKX_AVAILABLE:
+        st.error("NetworkX not installed.")
+        return
+        
+    num_cols, _, _ = get_column_types(df)
+    if len(num_cols) < 2: return
+    
+    threshold = st.slider("Correlation Threshold", 0.0, 1.0, 0.5)
+    
+    if st.button("Generate Correlation Network"):
+        corr = df[num_cols].corr()
+        G = nx.Graph()
+        
+        for i, c1 in enumerate(num_cols):
+            for j, c2 in enumerate(num_cols):
+                if i < j and abs(corr.loc[c1, c2]) > threshold:
+                    G.add_edge(c1, c2, weight=abs(corr.loc[c1, c2]))
+        
+        if len(G.nodes()) == 0:
+            st.warning("No connections found at this threshold.")
+            return
+
+        pos = nx.spring_layout(G, seed=42)
+        edge_x, edge_y = [], []
+        for edge in G.edges():
+            x0, y0 = pos[edge[0]]
+            x1, y1 = pos[edge[1]]
+            edge_x.extend([x0, x1, None])
+            edge_y.extend([y0, y1, None])
+            
+        edge_trace = go.Scatter(x=edge_x, y=edge_y, line=dict(width=0.5, color='#888'), hoverinfo='none', mode='lines')
+        
+        node_x = [pos[node][0] for node in G.nodes()]
+        node_y = [pos[node][1] for node in G.nodes()]
+        
+        node_trace = go.Scatter(
+            x=node_x, y=node_y, mode='markers+text',
+            text=list(G.nodes()), textposition="top center",
+            marker=dict(showscale=True, colorscale='YlGnBu', size=10, color=[len(list(G.neighbors(n))) for n in G.nodes()])
+        )
+        
+        fig = go.Figure(data=[edge_trace, node_trace], layout=go.Layout(showlegend=False, hovermode='closest'))
+        safe_plot(fig)
+
+def render_pdf_report(df):
+    """Generate PDF Report."""
+    st.markdown("### 📄 PDF Report Generator")
+    if df is None: return
+    if not REPORTLAB_AVAILABLE: st.error("ReportLab not installed."); return
+    
+    title = st.text_input("Report Title", "Lumina Analytics Report")
+    
+    if st.button("Generate PDF"):
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(buffer, pagesize=A4)
+        styles = getSampleStyleSheet()
+        story = [Paragraph(title, styles['Title']), Spacer(1, 12)]
+        
+        # Summary
+        summary = f"Dataset contains {len(df)} rows and {len(df.columns)} columns."
+        story.append(Paragraph(summary, styles['Normal']))
+        story.append(Spacer(1, 12))
+        
+        # Stats
+        desc = df.describe().round(2).reset_index().values.tolist()
+        cols = ['Stat'] + df.describe().columns.tolist()
+        data = [cols] + desc
+        # Limit columns to fit page
+        if len(data[0]) > 6: data = [r[:6] for r in data]
+        
+        t = Table(data)
+        t.setStyle(TableStyle([('GRID', (0,0), (-1,-1), 1, colors.black)]))
+        story.append(t)
+        
+        doc.build(story)
+        st.download_button("Download PDF", buffer.getvalue(), "report.pdf", "application/pdf")
+
+def render_text_analysis(df):
+    """Sentiment Analysis."""
+    st.markdown("### 📝 Text Analysis (Sentiment)")
+    if df is None: return
+    if not TEXTBLOB_AVAILABLE: st.error("TextBlob not installed."); return
+    
+    _, cat_cols, _ = get_column_types(df)
+    text_col = st.selectbox("Select Text Column", cat_cols)
+    
+    if st.button("Analyze Sentiment"):
+        with st.spinner("Analyzing..."):
+            sample = df[text_col].dropna().head(1000).astype(str)
+            sentiments = [TextBlob(txt).sentiment.polarity for txt in sample]
+            
+            res_df = pd.DataFrame({'Text': sample, 'Polarity': sentiments})
+            res_df['Sentiment'] = res_df['Polarity'].apply(lambda x: 'Pos' if x > 0.1 else ('Neg' if x < -0.1 else 'Neu'))
+            
+            fig = px.histogram(res_df, x='Polarity', color='Sentiment', title="Sentiment Distribution")
+            safe_plot(fig)
+            safe_dataframe(res_df.head(50), use_container_width=True)
+
+def render_topic_modeling(df):
+    """LDA Topic Modeling."""
+    st.markdown("### 📚 Topic Modeling (LDA)")
+    if df is None: return
+    if not TOPIC_MODELING_AVAILABLE: st.error("Sklearn Text modules missing."); return
+    
+    _, cat_cols, _ = get_column_types(df)
+    text_col = st.selectbox("Select Text Column", cat_cols, key='lda_text')
+    n_topics = st.slider("Topics", 2, 10, 3)
+    
+    if st.button("Extract Topics"):
+        vectorizer = CountVectorizer(max_features=1000, stop_words='english')
+        dtm = vectorizer.fit_transform(df[text_col].dropna().astype(str).head(5000))
+        lda = LatentDirichletAllocation(n_components=n_topics, random_state=42)
+        lda.fit(dtm)
+        
+        feature_names = vectorizer.get_feature_names_out()
+        for i, topic in enumerate(lda.components_):
+            top_words = [feature_names[i] for i in topic.argsort()[:-11:-1]]
+            st.write(f"**Topic {i+1}**: {', '.join(top_words)}")
+
+def render_ner(df):
+    """Named Entity Recognition."""
+    st.markdown("### 🏷️ Named Entity Recognition")
+    if df is None: return
+    if not SPACY_AVAILABLE: st.error("SpaCy not installed."); return
+
+    try: nlp = spacy.load("en_core_web_sm")
+    except: st.error("Model 'en_core_web_sm' not found."); return
+    
+    _, cat_cols, _ = get_column_types(df)
+    text_col = st.selectbox("Select Text Column", cat_cols, key='ner_text')
+    
+    if st.button("Extract Entities"):
+        text = " ".join(df[text_col].dropna().astype(str).head(100))
+        doc = nlp(text[:100000]) # Limit
+        ents = [(e.text, e.label_) for e in doc.ents]
+        ndf = pd.DataFrame(ents, columns=['Entity', 'Type'])
+        
+        fig = px.bar(ndf['Type'].value_counts(), title="Entity Types")
+        safe_plot(fig)
+        safe_dataframe(ndf.head(50), use_container_width=True)
+
+def render_wordcloud(df):
+    """Word Cloud."""
+    st.markdown("### ☁️ Word Cloud")
+    if df is None: return
+    if not WORDCLOUD_AVAILABLE: st.error("WordCloud not installed."); return
+    
+    _, cat_cols, _ = get_column_types(df)
+    text_col = st.selectbox("Select Text Column", cat_cols, key='wc_text')
+    
+    if st.button("Generate Cloud"):
+        text = " ".join(df[text_col].dropna().astype(str).head(5000))
+        wc = WordCloud(width=800, height=400, background_color='white').generate(text)
+        st.image(wc.to_array())
+
+def render_shap_analysis(df):
+    """SHAP Explainer."""
+    st.markdown("### 🔍 SHAP Explainability")
+    if df is None: return
+    if not SHAP_AVAILABLE or not XGBOOST_AVAILABLE: st.error("SHAP/XGBoost missing."); return
+    
+    num_cols, cat_cols, _ = get_column_types(df)
+    target = st.selectbox("Target", num_cols + cat_cols)
+    feats = st.multiselect("Features", num_cols, default=num_cols[:3])
+    
+    if st.button("Explain Model"):
+        data = df.dropna(subset=[target] + feats).sample(min(1000, len(df)))
+        X, y = data[feats], data[target]
+        
+        if y.dtype == 'object': 
+            y = LabelEncoder().fit_transform(y)
+            model = xgb.XGBClassifier(use_label_encoder=False, eval_metric='logloss')
+        else:
+            model = xgb.XGBRegressor()
+            
+        model.fit(X, y)
+        explainer = shap.Explainer(model, X)
+        shap_values = explainer(X)
+        
+        st.subheader("Feature Importance")
+        # Creating a bar plot from mean abs shap values manually for stability
+        mean_shap = np.abs(shap_values.values).mean(axis=0)
+        sdf = pd.DataFrame({'Feature': feats, 'Importance': mean_shap}).sort_values('Importance', ascending=True)
+        fig = px.bar(sdf, x='Importance', y='Feature', orientation='h', title="SHAP Importance")
+        safe_plot(fig)
+
+def render_automl(df):
+    """AutoML using RandomizedSearch."""
+    st.markdown("### 🤖 AutoML")
+    if df is None: return
+    if not AUTOML_AVAILABLE: st.error("Sklearn missing."); return
+    
+    num_cols, cat_cols, _ = get_column_types(df)
+    target = st.selectbox("Target", num_cols + cat_cols, key='automl_tgt')
+    feats = st.multiselect("Features", num_cols, default=num_cols[:3], key='automl_ft')
+    
+    if st.button("Run AutoML"):
+        data = df.dropna(subset=[target] + feats)
+        X, y = data[feats], data[target]
+        is_class = False
+        if y.dtype == 'object' or y.nunique() < 10:
+            is_class = True
+            y = LabelEncoder().fit_transform(y)
+            
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
+        
+        models = []
+        if is_class:
+            models = [
+                ('RF', RandomForestClassifier(), {'n_estimators': [50, 100]}),
+                ('GB', GradientBoostingClassifier(), {'learning_rate': [0.01, 0.1]})
+            ]
+        else:
+            models = [
+                ('RF', RandomForestRegressor(), {'n_estimators': [50, 100]}),
+                ('LinReg', LinearRegression(), {})
+            ]
+            
+        results = []
+        best_model = None
+        best_score = -np.inf
+        
+        for name, model, params in models:
+            search = RandomizedSearchCV(model, params, n_iter=5, cv=3)
+            search.fit(X_train, y_train)
+            score = search.score(X_test, y_test)
+            results.append({'Model': name, 'Score': score, 'Params': str(search.best_params_)})
+            if score > best_score:
+                best_score = score
+                best_model = search.best_estimator_
+                
+        st.success(f"Best Model: {type(best_model).__name__} (Score: {best_score:.4f})")
+        safe_dataframe(pd.DataFrame(results), use_container_width=True)
+
+def render_neural_network(df):
+    """MLP Builder."""
+    st.markdown("### 🧠 Neural Network Builder")
+    if df is None: return
+    if not MLP_AVAILABLE: st.error("Sklearn MLP missing."); return
+    
+    num_cols, cat_cols, _ = get_column_types(df)
+    target = st.selectbox("Target", num_cols, key='mlp_tgt')
+    feats = st.multiselect("Features", num_cols, key='mlp_feat')
+    
+    hidden = st.text_input("Hidden Layers (e.g. 64,32)", "64,32")
+    layers = tuple(map(int, hidden.split(',')))
+    
+    if st.button("Train MLP"):
+        data = df.dropna(subset=[target] + feats)
+        X, y = data[feats], data[target]
+        X = StandardScaler().fit_transform(X)
+        X_train, X_test, y_train, y_test = train_test_split(X, y)
+        
+        mlp = MLPRegressor(hidden_layer_sizes=layers, max_iter=500, random_state=42)
+        mlp.fit(X_train, y_train)
+        score = mlp.score(X_test, y_test)
+        
+        st.metric("Test R²", f"{score:.4f}")
+        
+        loss = mlp.loss_curve_
+        fig = px.line(x=range(len(loss)), y=loss, title="Training Loss")
+        safe_plot(fig)
+
+# ============================================================================
 # ADD TO MAIN SIDEBAR NAVIGATION
 # ============================================================================
 
@@ -2603,7 +3018,19 @@ PHASE_ICONS = {
                 'GLM':'📈 GLM',
                 'Multivariate':'🕸️ Multivariate',
                 'Survival':'⏳ Survival',
-                'Power Analysis':'🔋 Power'
+                'Power Analysis':'🔋 Power',
+                # Advanced Analytics
+                '3D Scatter': '🌐 3D Scatter',
+                'Sankey Diagram': '🔀 Sankey',
+                'Network Graph': '🕸️ Network',
+                'PDF Report': '📄 PDF Report',
+                'Text Analysis': '📝 Sentiment',
+                'Topic Modeling': '📚 Topics',
+                'NER': '🏷️ NER',
+                'Word Cloud': '☁️ Word Cloud',
+                'SHAP': '🔍 SHAP',
+                'AutoML': '🤖 AutoML',
+                'Neural Network': '🧠 Neural Net'
             }
 
 def sidebar_processor():
@@ -2779,6 +3206,18 @@ def main():
     elif phase == "Multivariate": safe_render(render_multivariate, df)
     elif phase == "Survival": safe_render(render_survival, df)
     elif phase == "Power Analysis": safe_render(render_power_analysis, df)
+    # Advanced Phases
+    elif phase == '3D Scatter': safe_render(render_3d_scatter, df)
+    elif phase == 'Sankey Diagram': safe_render(render_sankey_diagram, df)
+    elif phase == 'Network Graph': safe_render(render_network_graph, df)
+    elif phase == 'PDF Report': safe_render(render_pdf_report, df)
+    elif phase == 'Text Analysis': safe_render(render_text_analysis, df)
+    elif phase == 'Topic Modeling': safe_render(render_topic_modeling, df)
+    elif phase == 'NER': safe_render(render_ner, df)
+    elif phase == 'Word Cloud': safe_render(render_wordcloud, df)
+    elif phase == 'SHAP': safe_render(render_shap_analysis, df)
+    elif phase == 'AutoML': safe_render(render_automl, df)
+    elif phase == 'Neural Network': safe_render(render_neural_network, df)
 
 if __name__ == "__main__":
     main()

@@ -13,3 +13,10 @@ xlsxwriter
 openpyxl
 pyarrow
 xlrd
+xgboost
+shap
+textblob
+wordcloud
+spacy
+reportlab
+networkx
