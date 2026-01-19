@@ -2565,6 +2565,10 @@ def sidebar_processor():
             if df is not None:
                 # smart_date_converter
                 df = smart_date_converter(df)
+                
+                # Enforce string column names to prevent Streamlit/Plotly type errors (e.g. 1960 int vs str)
+                df.columns = df.columns.astype(str)
+                
                 st.session_state.data = df
                 st.success(f"✅ Active Data: {len(df):,} rows")
 
