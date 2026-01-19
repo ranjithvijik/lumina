@@ -88,11 +88,23 @@ st.markdown("""
         }
 
         /* 3. Inputs & Widgets (Force Dark Text on Light Background) */
-        .stTextInput input, .stNumberInput input, .stSelectbox, .stMultiSelect {
+        .stTextInput input, .stNumberInput input, .stTextArea textarea, .stSelectbox, .stMultiSelect {
             color: var(--text-color) !important;
+            background-color: #ffffff !important;
+            border: 1px solid #d0d7de !important;
         }
-        /* Fix label contrast */
-        div[data-baseweb="select"] span { color: var(--text-color) !important; }
+        /* Fix Selectbox/MultiSelect rendering */
+        div[data-baseweb="select"] {
+            background-color: #ffffff !important;
+        }
+        div[data-baseweb="select"] span { 
+            color: var(--text-color) !important; 
+        }
+        /* Input placeholder color */
+        ::placeholder {
+            color: #888 !important;
+            opacity: 1;
+        }
 
         /* 4. Sidebar (Optional Contrast Enhancement) */
         [data-testid="stSidebar"] {
