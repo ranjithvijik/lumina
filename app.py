@@ -150,6 +150,38 @@ def stat_box(title=None):
     finally:
         st.markdown("</div>", unsafe_allow_html=True)
 
+def safe_dataframe(data, **kwargs):
+    """Wrapper for safe_dataframe that handles Arrow compatibility and deprecations."""
+    if data is None: return
+    
+    # Fix Arrow handling of mixed types in Object columns
+    # We copy to display-only version to not affect analysis
+    df_disp = data.copy()
+    for col in df_disp.select_dtypes(include=['object']):
+        try:
+            df_disp[col] = df_disp[col].astype(str)
+        except: pass
+        
+    # Handle deprecation: explicit width vs use_container_width
+    if 'use_container_width' in kwargs:
+        del kwargs['use_container_width'] # Remove old arg
+    
+    # Default to stretch if not specified (legacy behavior)
+    if 'width' not in kwargs:
+        kwargs['width'] = "stretch" # Streamlit 1.53+ syntax
+        
+    st.dataframe(df_disp, **kwargs)
+
+def safe_plot(fig, **kwargs):
+    """Wrapper for safe_plot that handles deprecations."""
+    if fig is None: return
+    
+    if 'use_container_width' in kwargs:
+        del kwargs['use_container_width']
+        
+    # Default to stretch
+    st.plotly_chart(fig, width="stretch", **kwargs)
+
 def get_column_types(df):
     numeric = df.select_dtypes(include=[np.number]).columns.tolist()
     categorical = df.select_dtypes(include=['object', 'category', 'bool']).columns.tolist()
@@ -266,7 +298,7 @@ def render_monitor(df):
         st.subheader("Missing Data Pattern")
         fig = px.imshow(df.isnull(), aspect="auto", color_continuous_scale=[[0,"#2c3e50"],[1,"#FF2E63"]])
         fig.update_layout(yaxis_visible=False, coloraxis_showscale=False)
-        st.plotly_chart(fig, use_container_width=True)
+        safe_plot(fig, use_container_width=True)
     
     with c2:
         st.subheader("Data Types")
@@ -274,10 +306,10 @@ def render_monitor(df):
         dtypes.columns = ['Type', 'Count']
         dtypes['Type'] = dtypes['Type'].astype(str)
         fig_pie = px.pie(dtypes, values='Count', names='Type', hole=0.4)
-        st.plotly_chart(fig_pie, use_container_width=True)
+        safe_plot(fig_pie, use_container_width=True)
 
     with st.expander("📋 Data Preview"):
-        st.dataframe(df.head(50))
+        safe_dataframe(df.head(50))
 
 # --- EXPLORE PHASE ---
 def render_explore(df):
@@ -392,7 +424,7 @@ def render_explore(df):
 
         if fig:
             fig.update_layout(template="plotly_white", height=600, font=dict(family="Inter, sans-serif"), hovermode="closest")
-            st.plotly_chart(fig, use_container_width=True)
+            safe_plot(fig, use_container_width=True)
         else:
             st.warning(f"Could not generate {final_chart} with selected columns.")
             
@@ -463,7 +495,7 @@ def render_data_quality(df):
                 })
         
         profile_df = pd.DataFrame(profile_data)
-        st.dataframe(profile_df, use_container_width=True)
+        safe_dataframe(profile_df, use_container_width=True)
     
     # --- TAB 2: MISSING DATA ANALYSIS ---
     with tabs[1]:
@@ -478,7 +510,7 @@ def render_data_quality(df):
         if missing_summary['Missing Count'].sum() > 0:
             fig = px.bar(missing_summary, x='Column', y='Missing %', title="Missing Data by Column",
                         color='Missing %', color_continuous_scale='Reds')
-            st.plotly_chart(fig, use_container_width=True)
+            safe_plot(fig, use_container_width=True)
             
             st.subheader("Missing Data Correlations")
             # Show which columns have missing values together
@@ -486,9 +518,9 @@ def render_data_quality(df):
             if missing_corr.shape[0] > 1:
                 fig = go.Figure(data=go.Heatmap(z=missing_corr.values, x=missing_corr.columns, 
                                                  y=missing_corr.columns, colorscale='Blues'))
-                st.plotly_chart(fig, use_container_width=True)
+                safe_plot(fig, use_container_width=True)
             
-            st.dataframe(missing_summary, use_container_width=True)
+            safe_dataframe(missing_summary, use_container_width=True)
         else:
             st.success("✓ No missing values detected!")
     
@@ -535,7 +567,7 @@ def render_data_quality(df):
                                     mode='markers', name='Outliers',
                                     marker=dict(color='red', size=10)))
             fig.update_layout(title=f"Outlier Detection: {col_select}", height=500)
-            st.plotly_chart(fig, use_container_width=True)
+            safe_plot(fig, use_container_width=True)
             
             # Outlier statistics
             if outlier_count > 0:
@@ -561,7 +593,7 @@ def render_data_quality(df):
             
             if dup_counts > 0:
                 duplicates = df[df.duplicated(subset=subset_cols, keep=False)].sort_values(subset_cols)
-                st.dataframe(duplicates.head(20), use_container_width=True)
+                safe_dataframe(duplicates.head(20), use_container_width=True)
                 st.caption(f"Showing first 20 of {len(duplicates)} duplicate rows")
             else:
                 st.success("✓ No duplicates found!")
@@ -576,7 +608,7 @@ def render_data_quality(df):
         })
         
         fig = px.pie(type_summary, values='Count', names='Data Type', title="Data Type Distribution")
-        st.plotly_chart(fig, use_container_width=True)
+        safe_plot(fig, use_container_width=True)
         
         st.subheader("Format Validation")
         col1, col2 = st.columns(2)
@@ -652,7 +684,7 @@ def render_anomaly_detection(df):
             anomaly_scores = iso_model.score_samples(X_scaled)
             fig = px.histogram(x=anomaly_scores, nbins=30, 
                              title="Anomaly Scores (Isolation Forest)")
-            st.plotly_chart(fig, use_container_width=True)
+            safe_plot(fig, use_container_width=True)
     
     # --- LOCAL OUTLIER FACTOR ---
     with col2:
@@ -666,7 +698,7 @@ def render_anomaly_detection(df):
         lof_scores = lof_model.negative_outlier_factor_
         fig = px.histogram(x=lof_scores, nbins=30,
                           title="LOF Scores (Local Outlier Factor)")
-        st.plotly_chart(fig, use_container_width=True)
+        safe_plot(fig, use_container_width=True)
     
     # --- ENSEMBLE CONSENSUS ---
     with col3:
@@ -684,7 +716,7 @@ def render_anomaly_detection(df):
         }, index=[0]).T
         
         fig = px.bar(agreement_df, title="Method Agreement")
-        st.plotly_chart(fig, use_container_width=True)
+        safe_plot(fig, use_container_width=True)
     
     # --- VISUALIZATION ---
     st.subheader("2D Projection (PCA)")
@@ -701,7 +733,7 @@ def render_anomaly_detection(df):
         fig = px.scatter(viz_df, x='PC1', y='PC2', color='Ensemble',
                         title="Anomalies in PCA Space",
                         color_discrete_map={'True': 'red', 'False': 'blue'})
-        st.plotly_chart(fig, use_container_width=True)
+        safe_plot(fig, use_container_width=True)
     
     # --- ANOMALY DETAILS ---
     st.subheader("Anomalous Records")
@@ -710,7 +742,7 @@ def render_anomaly_detection(df):
     if len(anomaly_indices) > 0:
         n_show = min(10, len(anomaly_indices))
         anomaly_records = data_clean.iloc[anomaly_indices[:n_show]]
-        st.dataframe(anomaly_records, use_container_width=True)
+        safe_dataframe(anomaly_records, use_container_width=True)
         st.caption(f"Showing {n_show} of {len(anomaly_indices)} anomalous records")
     else:
         st.success("✓ No anomalies detected!")
@@ -750,7 +782,7 @@ def render_feature_engineering(df):
                 poly_df = pd.DataFrame(poly_features, columns=feature_names)
                 
                 st.success(f"✓ Generated {len(feature_names)} polynomial features")
-                st.dataframe(poly_df.head(), use_container_width=True)
+                safe_dataframe(poly_df.head(), use_container_width=True)
                 
                 csv = poly_df.to_csv(index=False)
                 st.download_button("Download Polynomial Features", csv, 
@@ -768,7 +800,7 @@ def render_feature_engineering(df):
                 
                 inter_df = pd.DataFrame(interaction_features)
                 st.success(f"✓ Generated {len(interaction_features)} interaction terms")
-                st.dataframe(inter_df.head(), use_container_width=True)
+                safe_dataframe(inter_df.head(), use_container_width=True)
     
     with st.expander("3️⃣ Feature Scaling & Normalization", expanded=False):
         if len(num_cols) > 0:
@@ -793,7 +825,7 @@ def render_feature_engineering(df):
                 scaled_df = pd.DataFrame(scaled_data, columns=[f"{c}_scaled" for c in scale_cols])
                 
                 st.success(f"✓ Applied {scale_method}")
-                st.dataframe(scaled_df.head(), use_container_width=True)
+                safe_dataframe(scaled_df.head(), use_container_width=True)
     
     with st.expander("4️⃣ Categorical Encoding", expanded=False):
         if len(cat_cols) > 0:
@@ -821,7 +853,7 @@ def render_feature_engineering(df):
                     })
                     st.success("✓ Frequency Encoding Applied")
                 
-                st.dataframe(encoded.head(), use_container_width=True)
+                safe_dataframe(encoded.head(), use_container_width=True)
 
 # ============================================================================
 # 11. ADVANCED VISUALIZATION: CORRELATION HEATMAP WITH SIGNIFICANCE
@@ -879,7 +911,7 @@ def render_correlation_analysis(df):
     ))
     
     fig.update_layout(title="Pearson Correlation Matrix", height=600)
-    st.plotly_chart(fig, use_container_width=True)
+    safe_plot(fig, use_container_width=True)
     
     # --- CORRELATION STRENGTH INTERPRETATION ---
     st.subheader("Strong Correlations (|r| > 0.7)")
@@ -901,7 +933,7 @@ def render_correlation_analysis(df):
                 })
     
     if strong_corr:
-        st.dataframe(pd.DataFrame(strong_corr), use_container_width=True)
+        safe_dataframe(pd.DataFrame(strong_corr), use_container_width=True)
     else:
         st.info("No strong correlations detected.")
     
@@ -934,7 +966,7 @@ def render_correlation_analysis(df):
         fig.update_layout(title="Correlation Dendrogram", 
                          xaxis_title="Features", yaxis_title="Distance",
                          height=500)
-        st.plotly_chart(fig, use_container_width=True)
+        safe_plot(fig, use_container_width=True)
     else:
         st.info("Need more than 2 variables for dendrogram.")
 
@@ -1005,7 +1037,7 @@ def render_statistical_test(df):
         fig.add_trace(go.Scatter(x=qq[0][0], y=qq[0][1], mode='markers', name='Data Points'), row=1, col=2)
         fig.add_trace(go.Scatter(x=qq[1][0], y=qq[1][1], mode='lines', name='Reference Line'), row=1, col=2)
         
-        st.plotly_chart(fig, use_container_width=True)
+        safe_plot(fig, use_container_width=True)
 
     # --- EQUAL VARIANCE TEST ---
     elif test_type == "Equal Variance Test (Levene)":
@@ -1072,7 +1104,7 @@ def render_statistical_test(df):
         fig.add_trace(go.Box(y=group1_data, name=str(group1)))
         fig.add_trace(go.Box(y=group2_data, name=str(group2)))
         fig.update_layout(title="Group Comparison Boxplot")
-        st.plotly_chart(fig, use_container_width=True)
+        safe_plot(fig, use_container_width=True)
 
     # --- MANN-WHITNEY U TEST ---
     elif test_type == "Mann-Whitney U Test":
@@ -1174,7 +1206,7 @@ def render_statistical_test(df):
         # Scatter with trendline
         fig = px.scatter(data_clean, x=var1, y=var2, trendline="ols", 
                         title=f"Correlation: {var1} vs {var2}")
-        st.plotly_chart(fig, use_container_width=True)
+        safe_plot(fig, use_container_width=True)
 
     # --- CHI-SQUARE TEST ---
     elif test_type == "Chi-Square Test of Independence":
@@ -1196,7 +1228,7 @@ def render_statistical_test(df):
         st.markdown("</div>", unsafe_allow_html=True)
         
         st.subheader("Contingency Table")
-        st.dataframe(ct)
+        safe_dataframe(ct)
 
 # --- REGRESSION (STATISTICAL) PHASE ---
 def render_regression(df):
@@ -1261,7 +1293,7 @@ def render_regression(df):
             't-Statistic': model.tvalues,
             'P-Value': model.pvalues
         })
-        st.dataframe(coef_df)
+        safe_dataframe(coef_df)
         
         # VIF for multicollinearity
         vif_data = pd.DataFrame()
@@ -1269,7 +1301,7 @@ def render_regression(df):
         vif_data["VIF"] = [variance_inflation_factor(X.values, i) for i in range(X.shape[1])]
         
         st.subheader("Multicollinearity Check (VIF)")
-        st.dataframe(vif_data)
+        safe_dataframe(vif_data)
         st.caption("VIF > 10 indicates high multicollinearity")
 
     # --- MULTIPLE REGRESSION WITH FORMULA ---
@@ -1311,7 +1343,7 @@ def render_regression(df):
         
         st.subheader("Feature Importance")
         fig = px.bar(importance_df, x='Importance', y='Feature', orientation='h', title="Feature Importance (Random Forest)")
-        st.plotly_chart(fig, use_container_width=True)
+        safe_plot(fig, use_container_width=True)
         
         # Predictions vs Actual
         y_pred = model.predict(X_test)
@@ -1323,7 +1355,7 @@ def render_regression(df):
                                  y=[pred_df['Actual'].min(), pred_df['Actual'].max()], 
                                  mode='lines', name='Perfect Fit'))
         fig.update_layout(title="Actual vs Predicted", xaxis_title="Actual", yaxis_title="Predicted")
-        st.plotly_chart(fig, use_container_width=True)
+        safe_plot(fig, use_container_width=True)
 
 # ============================================================================
 # 12. PREDICTIVE MODELING - CLASSIFICATION & COMPARISON (NEW)
@@ -1417,7 +1449,7 @@ def render_predictive_modeling(df):
                 
                 fig = px.bar(results_df, x='Model', y='Accuracy', title="Model Accuracy Comparison",
                            color='Accuracy', color_continuous_scale='Viridis')
-                st.plotly_chart(fig, use_container_width=True)
+                safe_plot(fig, use_container_width=True)
                 
                 # Best model analysis
                 best_model_name = max(results.items(), 
@@ -1439,7 +1471,7 @@ def render_predictive_modeling(df):
                               x=['Predicted Negative', 'Predicted Positive'],
                               y=['Actual Negative', 'Actual Positive'],
                               color_continuous_scale='Blues')
-                st.plotly_chart(fig, use_container_width=True)
+                safe_plot(fig, use_container_width=True)
                 
                 # Feature importance
                 if hasattr(best_result['Model'], 'feature_importances_'):
@@ -1450,7 +1482,7 @@ def render_predictive_modeling(df):
                     
                     fig = px.bar(importance_df, x='Importance', y='Feature', 
                                orientation='h', title="Feature Importance")
-                    st.plotly_chart(fig, use_container_width=True)
+                    safe_plot(fig, use_container_width=True)
                 
                 # --- METRIC VISUALIZATION ---
                 if len(np.unique(y_test)) == 2:
@@ -1502,7 +1534,7 @@ def render_predictive_modeling(df):
                 results[name] = {'R²': r2, 'RMSE': rmse, 'MAE': mae, 'y_pred': y_pred}
             
             results_df = pd.DataFrame(results).T
-            st.dataframe(results_df, use_container_width=True)
+            safe_dataframe(results_df, use_container_width=True)
 
 # ============================================================================
 # 13. BUSINESS INTELLIGENCE - RFM & COHORT ANALYSIS (NEW)
@@ -1565,13 +1597,13 @@ def render_business_analytics(df):
                 
                 rfm['Segment'] = rfm['RFM_Score'].apply(rfm_segment)
                 
-                st.dataframe(rfm.head(10), use_container_width=True)
+                safe_dataframe(rfm.head(10), use_container_width=True)
                 
                 # Segment distribution
                 seg_counts = rfm['Segment'].value_counts()
                 fig = px.pie(values=seg_counts.values, names=seg_counts.index,
                            title="Customer Segmentation")
-                st.plotly_chart(fig, use_container_width=True)
+                safe_plot(fig, use_container_width=True)
     
     elif analysis_type == "Cohort Analysis":
         st.subheader("Cohort Analysis")
@@ -1588,7 +1620,7 @@ def render_business_analytics(df):
             fig = px.line(x=cohort_data.index.astype(str), y=cohort_data.values,
                         title="Cohort Sizes Over Time",
                         markers=True)
-            st.plotly_chart(fig, use_container_width=True)
+            safe_plot(fig, use_container_width=True)
     
     elif analysis_type == "Funnel Analysis":
         st.subheader("Conversion Funnel")
@@ -1607,7 +1639,7 @@ def render_business_analytics(df):
             
             fig = px.funnel(x=stage_counts, y=funnel_stages,
                           title="Conversion Funnel")
-            st.plotly_chart(fig, use_container_width=True)
+            safe_plot(fig, use_container_width=True)
             
             # Conversion metrics
             st.subheader("Conversion Rates")
@@ -1649,10 +1681,10 @@ def render_cluster(df):
         X['PCA2'] = components[:,1]
         
         fig = px.scatter(X, x='PCA1', y='PCA2', color='Cluster', title="Cluster Projection (PCA)")
-        st.plotly_chart(fig, use_container_width=True)
+        safe_plot(fig, use_container_width=True)
         
         st.subheader("Cluster Profiles (Mean Values)")
-        st.dataframe(X.groupby("Cluster")[cols].mean())
+        safe_dataframe(X.groupby("Cluster")[cols].mean())
 
 # --- TIME SERIES PHASE ---
 def render_timeseries(df):
@@ -1678,7 +1710,7 @@ def render_timeseries(df):
     
     fig = px.line(agg, x=dc, y=nc, title=f"{nc} Trend over Time")
     fig.update_xaxes(rangeslider_visible=True)
-    st.plotly_chart(fig, use_container_width=True)
+    safe_plot(fig, use_container_width=True)
 
     # --- ADVANCED TIME SERIES: DECOMPOSITION & ACF/PACF ---
     if len(agg) > 20:
@@ -1697,7 +1729,7 @@ def render_timeseries(df):
                 fig.add_trace(go.Scatter(x=decomp.seasonal.index, y=decomp.seasonal, mode='lines', name='Seasonal'), row=3, col=1)
                 fig.add_trace(go.Scatter(x=decomp.resid.index, y=decomp.resid, mode='lines', name='Residual'), row=4, col=1)
                 fig.update_layout(height=800, title="Additive Decomposition")
-                st.plotly_chart(fig, use_container_width=True)
+                safe_plot(fig, use_container_width=True)
             else:
                 st.info("Could not automatically determine frequency for decomposition. Ensure dates are regular.")
                 
@@ -1729,7 +1761,7 @@ def render_timeseries(df):
             
         fig = px.line(sim_df, title=f"Monte Carlo Simulation ({steps} days ahead)")
         fig.update_traces(line=dict(width=1), opacity=0.5)
-        st.plotly_chart(fig, use_container_width=True)
+        safe_plot(fig, use_container_width=True)
 
 # --- IMPACT PHASE ---
 def render_impact(df):
@@ -1756,7 +1788,7 @@ def render_impact(df):
     fig.add_trace(go.Scatter(x=x, y=y_a, fill='tozeroy', name='Control', line_color='grey'))
     fig.add_trace(go.Scatter(x=x, y=y_b, fill='tozeroy', name='Variant', line_color='#00ADB5'))
     fig.update_layout(title="Distribution Overlap")
-    st.plotly_chart(fig, use_container_width=True)
+    safe_plot(fig, use_container_width=True)
 
 # --- REPORT PHASE ---
 def render_report(df):
@@ -1831,7 +1863,7 @@ def render_report(df):
         """, unsafe_allow_html=True)
         
         with st.expander("View Full Statistical Table"):
-            st.dataframe(df.describe())
+            safe_dataframe(df.describe())
 
     with col2:
         st.subheader("💾 Export")
@@ -2017,7 +2049,7 @@ def render_survival(df):
                     fig.add_trace(go.Scatter(x=km['Time'], y=km['Survival Probability'], mode='lines', step='hv', name='All Data'))
                     
                 fig.update_layout(title="Kaplan-Meier Survival Curve (Manual)", xaxis_title="Time", yaxis_title="Survival Probability")
-                st.plotly_chart(fig, use_container_width=True)
+                safe_plot(fig, use_container_width=True)
 
 
 def render_power_analysis(df):
@@ -2091,7 +2123,7 @@ def render_pareto_analysis(df):
         
         fig.update_layout(title=f"Pareto Analysis of {metric} by {cat}")
         fig.update_yaxes(title_text="Cumulative %", secondary_y=True, range=[0, 110])
-        st.plotly_chart(fig, use_container_width=True)
+        safe_plot(fig, use_container_width=True)
         
         st.subheader("ABC Classification Summary")
         st.table(pareto_df['Class'].value_counts())
@@ -2163,13 +2195,13 @@ def render_market_basket(df):
             if rules:
                 rules_df = pd.DataFrame(rules).sort_values("Lift", ascending=False)
                 st.success(f"Found {len(rules_df)} rules!")
-                st.dataframe(rules_df, use_container_width=True)
+                safe_dataframe(rules_df, use_container_width=True)
                 
                 # Viz
                 if len(rules_df) > 0:
                     fig = px.scatter(rules_df, x="Support", y="Confidence", size="Lift", color="Lift",
                                    hover_name="Rule", title="Association Rules Matrix")
-                    st.plotly_chart(fig, use_container_width=True)
+                    safe_plot(fig, use_container_width=True)
             else:
                 st.warning("No rules found with current parameters. Try lowering support.")
 
