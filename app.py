@@ -153,7 +153,12 @@ def stat_box(title=None):
 def get_column_types(df):
     numeric = df.select_dtypes(include=[np.number]).columns.tolist()
     categorical = df.select_dtypes(include=['object', 'category', 'bool']).columns.tolist()
-    datetime_cols = df.select_dtypes(include=['datetime64[ns]', 'datetime64[ns, tz]']).columns.tolist()
+    datetime_cols = []
+    try:
+        datetime_cols = df.select_dtypes(include=['datetime64[ns]', 'datetime64[ns, tz]']).columns.tolist()
+    except TypeError:
+        pass
+        
     if not datetime_cols:
         datetime_cols = df.select_dtypes(include=['datetime']).columns.tolist()
     return numeric, categorical, datetime_cols
@@ -1901,10 +1906,10 @@ def render_glm(df):
 
             X = sm.add_constant(X)
             
+            
             chosen_fam = fam_map[family_name]
             # Apply link if compatible (simple implementation)
             try:
-               chosen_fam = fam_map[family_name]
                # We can pass link argument in init if we reconstruct, or just set link.
                # Easier: families.Gaussian(link=link_map[link_name])
                if family_name == "Gaussian": chosen_fam = families.Gaussian(link=link_map[link_name])
@@ -1969,52 +1974,31 @@ def render_survival(df):
     event_col = st.selectbox("Event Column (1=Event, 0=Censor)", num_cols)
     group_col = st.selectbox("Group By (Optional)", [None] + cat_cols)
     
-    if st.button("Calculate Survival Curves"):
-        try:
-            if LIFELINES_AVAILABLE:
-                kmf = KaplanMeierFitter()
-                
-                # Setup Plot
-                fig = go.Figure()
-                
-                if group_col:
-                    # Binary Check
-                    unique_events = df[event_col].dropna().unique()
-                    if not set(unique_events).issubset({0, 1}):
-                        st.error("Event column must be binary (0/1).")
-                        return
+    if st.button("Run Survival Analysis"):
+        # Validation
+        if len(df[event_col].unique()) > 2 or not set(df[event_col].unique()).issubset({0, 1}):
+            st.error("Event Column must be binary (0/1).")
+            return
 
-                    groups = df[group_col].unique()
-                    for g in groups:
-                        mask = df[group_col] == g
-                        kmf.fit(df.loc[mask, dur_col], df.loc[mask, event_col], label=str(g))
-                        
-                        # Get KM data
-                        survival_df = kmf.survival_function_
-                        fig.add_trace(go.Scatter(x=survival_df.index, y=survival_df.iloc[:,0], mode='lines', step='hv', name=str(g)))
+        if LIFELINES_AVAILABLE:
+            kmf = KaplanMeierFitter()
+            
+            # Setup Plot
+            
+            if group_col:
+                # Binary Check
+                unique_events = df[event_col].dropna().unique()
+                if not set(unique_events).issubset({0, 1}):
+                    st.error("Event column must be binary (0/1).")
+                    return
+
+                groups = df[group_col].unique()
+                for g in groups:
+                    mask = df[group_col] == g
+                    kmf.fit(df.loc[mask, dur_col], df.loc[mask, event_col], label=str(g))
                     
-                    # Log-Rank Test (New)
-                    if len(groups) == 2:
-                        from lifelines.statistics import logrank_test
-                        g1 = df[df[group_col] == groups[0]]
-                        g2 = df[df[group_col] == groups[1]]
-                        result = logrank_test(g1[dur_col], g2[dur_col], g1[event_col], g2[event_col])
-                        st.metric("Log-Rank P-Value", f"{result.p_value:.4f}")
-
-                else:
-                    kmf.fit(df[dur_col], df[event_col], label="All Data")
+                    # Get KM data
                     survival_df = kmf.survival_function_
-                    fig.add_trace(go.Scatter(x=survival_df.index, y=survival_df.iloc[:,0], mode='lines', step='hv', name="All Data"))
-                
-                fig.update_layout(title="Kaplan-Meier Survival Curve (Lifelines)", xaxis_title="Time", yaxis_title="Survival Probability")
-                st.plotly_chart(fig, use_container_width=True)
-                
-            else:
-                # Manual KM Implementation (Fallback)
-                def calculate_km(dists):
-                    dists = dists.sort_values(dur_col)
-                    survival = 1.0
-                    km_data = []
                     unique_times = dists[dur_col].unique()
                     
                     for t in unique_times:
@@ -2041,8 +2025,7 @@ def render_survival(df):
                     
                 fig.update_layout(title="Kaplan-Meier Survival Curve (Manual)", xaxis_title="Time", yaxis_title="Survival Probability")
                 st.plotly_chart(fig, use_container_width=True)
-        except Exception as e:
-            st.error(f"Survival Error: {e}")
+
 
 def render_power_analysis(df):
     st.markdown("""
@@ -2378,27 +2361,38 @@ def sidebar_processor():
 def main():
     phase, df = sidebar_processor()
     
-    if phase == "Monitor": render_monitor(df)
-    elif phase == "Explore": render_explore(df)
-    elif phase == "Cluster": render_cluster(df)
-    elif phase == "Time Series": render_timeseries(df)
-    elif phase == "Statistical Test": render_statistical_test(df)
-    elif phase == "Regression": render_regression(df)
-    elif phase == "Impact": render_impact(df)
-    elif phase == "Report": render_report(df)
-    elif phase == "Data Quality": render_data_quality(df)
-    elif phase == "Anomaly Detection": render_anomaly_detection(df)
-    elif phase == "Feature Eng": render_feature_engineering(df)
-    elif phase == "Correlation": render_correlation_analysis(df)
-    elif phase == "Predictive Model": render_predictive_modeling(df)
-    elif phase == "Business Analytics": render_business_analytics(df)
-    elif phase == "Pareto Analysis": render_pareto_analysis(df)
-    elif phase == "Market Basket": render_market_basket(df)
-    elif phase == "Smart Narrative": render_smart_narrative(df)
-    elif phase == "GLM": render_glm(df)
-    elif phase == "Multivariate": render_multivariate(df)
-    elif phase == "Survival": render_survival(df)
-    elif phase == "Power Analysis": render_power_analysis(df)
+    if 'analysis_history' not in st.session_state:
+        st.session_state.analysis_history = []
+
+    def safe_render(render_func, df):
+        try:
+            render_func(df)
+        except Exception as e:
+            st.error(f"An error occurred: {str(e)}")
+            if st.checkbox("Show technical details"):
+                st.exception(e)
+
+    if phase == "Monitor": safe_render(render_monitor, df)
+    elif phase == "Explore": safe_render(render_explore, df)
+    elif phase == "Cluster": safe_render(render_cluster, df)
+    elif phase == "Time Series": safe_render(render_timeseries, df)
+    elif phase == "Statistical Test": safe_render(render_statistical_test, df)
+    elif phase == "Regression": safe_render(render_regression, df)
+    elif phase == "Impact": safe_render(render_impact, df)
+    elif phase == "Report": safe_render(render_report, df)
+    elif phase == "Data Quality": safe_render(render_data_quality, df)
+    elif phase == "Anomaly Detection": safe_render(render_anomaly_detection, df)
+    elif phase == "Feature Eng": safe_render(render_feature_engineering, df)
+    elif phase == "Correlation": safe_render(render_correlation_analysis, df)
+    elif phase == "Predictive Model": safe_render(render_predictive_modeling, df)
+    elif phase == "Business Analytics": safe_render(render_business_analytics, df)
+    elif phase == "Pareto Analysis": safe_render(render_pareto_analysis, df)
+    elif phase == "Market Basket": safe_render(render_market_basket, df)
+    elif phase == "Smart Narrative": safe_render(render_smart_narrative, df)
+    elif phase == "GLM": safe_render(render_glm, df)
+    elif phase == "Multivariate": safe_render(render_multivariate, df)
+    elif phase == "Survival": safe_render(render_survival, df)
+    elif phase == "Power Analysis": safe_render(render_power_analysis, df)
 
 if __name__ == "__main__":
     main()

@@ -120,3 +120,6 @@ dmypy.json
 
 # Mac OS X
 .DS_Store
+
+# Generated Test Data
+tests/data/
