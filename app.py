@@ -395,7 +395,13 @@ def safe_plot(fig, **kwargs):
 def get_column_types(df):
     numeric = df.select_dtypes(include=[np.number]).columns.tolist()
     categorical = df.select_dtypes(include=['object', 'category', 'bool']).columns.tolist()
-    datetime_cols = df.select_dtypes(include=['datetime']).columns.tolist()
+    # Enhanced datetime detection
+    datetime_cols = df.select_dtypes(include=[
+        'datetime64[ns]', 
+        'datetime64[ns, UTC]', 
+        'datetime64',
+        'datetimetz'
+    ]).columns.tolist()
     return numeric, categorical, datetime_cols
 
 def clean_xy(df, target, features):
@@ -404,6 +410,24 @@ def clean_xy(df, target, features):
     X = data[features]
     y = data[target]
     return X, y
+
+def check_dataset_size(df, limit=50000, phase_name="this analysis"):
+    """Global performance guard for large datasets."""
+    if len(df) > limit:
+        st.warning(f"⚠️ Large dataset detected ({len(df):,} rows) for {phase_name}.")
+        if st.checkbox("Sample data for performance?", value=True, key=f"sample_{phase_name}"):
+            return df.sample(limit, random_state=42)
+    return df
+
+import traceback
+def safe_render(render_func, df):
+    """Wrap phase calls to prevent crashes."""
+    try:
+        render_func(df)
+    except Exception as e:
+        st.error(f"An error occurred in this phase: {str(e)}")
+        with st.expander("🔧 Technical Details"):
+            st.code(traceback.format_exc())
 
 # ============================================================================
 # 6. CHART RECOMMENDATION ENGINE
@@ -1175,33 +1199,21 @@ def render_correlation_analysis(df):
     st.subheader("Correlation Dendrogram (Hierarchical Clustering)")
     
     if len(num_cols) > 2:
-        # Distance matrix from correlation
         distance_matrix = 1 - np.abs(corr_matrix)
-        # Handle NaNs in distance matrix (e.g., perfect correlation or constant)
         distance_matrix = distance_matrix.fillna(0)
         
-        # Use values for pdist to treat rows as vectors
-        linkage_matrix = linkage(pdist(distance_matrix.values, metric='euclidean'), method='ward')
-        
-        fig = ff.create_dendrogram(distance_matrix, labels=distance_matrix.columns, linkagefun=lambda x: linkage_matrix)
-        
-        # Create dendrogram plot using scipy
-        from scipy.cluster.hierarchy import dendrogram as scipy_dendrogram
-        dendro = scipy_dendrogram(linkage_matrix, labels=corr_matrix.columns, 
-                                 no_plot=True)
-        
-        icoord = np.array(dendro['icoord'])
-        dcoord = np.array(dendro['dcoord'])
-        
-        for i in range(len(icoord)):
-            fig.add_trace(go.Scatter(x=icoord[i], y=dcoord[i], 
-                                    mode='lines', line_color='grey',
-                                    hoverinfo='none', showlegend=False))
-        
-        fig.update_xaxes(ticktext=dendro['ivl'], tickvals=list(range(10, 10*len(dendro['ivl']), 10)))
-        fig.update_layout(title="Correlation Dendrogram", 
-                         xaxis_title="Features", yaxis_title="Distance",
-                         height=500)
+        # Use create_dendrogram directly - it handles everything
+        fig = ff.create_dendrogram(
+            distance_matrix.values,
+            labels=distance_matrix.columns.tolist(),
+            orientation='bottom'
+        )
+        fig.update_layout(
+            title="Correlation Dendrogram",
+            xaxis_title="Features",
+            yaxis_title="Distance",
+            height=500
+        )
         safe_plot(fig, use_container_width=True)
     else:
         st.info("Need more than 2 variables for dendrogram.")
@@ -1647,6 +1659,9 @@ def render_predictive_modeling(df):
         return
     
     num_cols, cat_cols, _ = get_column_types(df)
+    
+    # Global performance guard
+    df = check_dataset_size(df, limit=50000, phase_name="Predictive Modeling")
     
     # --- MODEL SELECTION ---
     problem_type = st.radio("Problem Type", ["Classification", "Regression"])
@@ -2148,6 +2163,21 @@ def render_report(df):
             mime="application/msword"
         )
         st.caption("*Format: HTML-based Word Document*")
+        
+        # Parquet export
+        st.divider()
+        st.caption("**Preserve Data Types**")
+        
+        import io
+        buffer = io.BytesIO()
+        df.to_parquet(buffer, index=False)
+        st.download_button(
+            label="Download Cleaned Data (.parquet)",
+            data=buffer.getvalue(),
+            file_name=f"Lumina_Cleaned_{datetime.now().strftime('%Y%m%d')}.parquet",
+            mime="application/octet-stream"
+        )
+        st.caption("*Parquet preserves date/categorical types that Excel loses.*")
 
 
 # ============================================================================
@@ -2172,7 +2202,17 @@ def render_glm(df):
     if not features: return
     
     family_name = st.selectbox("Distribution Family", ["Gaussian", "Poisson", "Gamma", "Binomial", "Negative Binomial"])
-    link_name = st.selectbox("Link Function", ["Identity", "Log", "Logit", "Inverse_Power"])
+    
+    # Dynamic link options based on family
+    valid_links = {
+        "Gaussian": ["Identity", "Log"],
+        "Poisson": ["Log", "Identity"],
+        "Gamma": ["Log", "Inverse_Power", "Identity"],
+        "Binomial": ["Logit", "Log"],
+        "Negative Binomial": ["Log"]
+    }
+    
+    link_name = st.selectbox("Link Function", valid_links.get(family_name, ["Identity"]))
     
     # Map Families
     fam_map = {
@@ -2183,8 +2223,7 @@ def render_glm(df):
         "Negative Binomial": families.NegativeBinomial()
     }
 
-    # Map Links - If user selects non-default, we apply it
-    # Note: Statsmodels families have defaults, this overrides if needed.
+    # Map Links
     link_map = {
         "Identity": families.links.identity(),
         "Log": families.links.log(),
@@ -2203,19 +2242,17 @@ def render_glm(df):
 
             X = sm.add_constant(X)
             
-            
+            # Apply Link Function
             chosen_fam = fam_map[family_name]
-            # Apply link if compatible (simple implementation)
             try:
-               # We can pass link argument in init if we reconstruct, or just set link.
-               # Easier: families.Gaussian(link=link_map[link_name])
-               if family_name == "Gaussian": chosen_fam = families.Gaussian(link=link_map[link_name])
-               elif family_name == "Poisson": chosen_fam = families.Poisson(link=link_map[link_name])
-               elif family_name == "Gamma": chosen_fam = families.Gamma(link=link_map[link_name])
-               elif family_name == "Binomial": chosen_fam = families.Binomial(link=link_map[link_name])
-               elif family_name == "Negative Binomial": chosen_fam = families.NegativeBinomial(link=link_map[link_name])
+                # Re-instantiate family with link
+                if family_name == "Gaussian": chosen_fam = families.Gaussian(link=link_map[link_name])
+                elif family_name == "Poisson": chosen_fam = families.Poisson(link=link_map[link_name])
+                elif family_name == "Gamma": chosen_fam = families.Gamma(link=link_map[link_name])
+                elif family_name == "Binomial": chosen_fam = families.Binomial(link=link_map[link_name])
+                elif family_name == "Negative Binomial": chosen_fam = families.NegativeBinomial(link=link_map[link_name])
             except:
-               st.warning("Link function incompatible with Family. Using default.")
+                st.warning("Link function incompatible. Using default.")
 
             model = sm.GLM(y, X, family=chosen_fam).fit()
             
@@ -2273,55 +2310,76 @@ def render_survival(df):
     
     if st.button("Run Survival Analysis"):
         # Validation
-        if len(df[event_col].unique()) > 2 or not set(df[event_col].unique()).issubset({0, 1}):
+        unique_events = df[event_col].dropna().unique()
+        if not set(unique_events).issubset({0, 1, 0.0, 1.0}):
             st.error("Event Column must be binary (0/1).")
             return
-
+        
         if LIFELINES_AVAILABLE:
-            kmf = KaplanMeierFitter()
-            
-            # Setup Plot
+            fig = go.Figure()
             
             if group_col:
-                # Binary Check
-                unique_events = df[event_col].dropna().unique()
-                if not set(unique_events).issubset({0, 1}):
-                    st.error("Event column must be binary (0/1).")
-                    return
-
-                groups = df[group_col].unique()
+                groups = df[group_col].dropna().unique()
+                kmf_results = {}
+                
                 for g in groups:
                     mask = df[group_col] == g
-                    kmf.fit(df.loc[mask, dur_col], df.loc[mask, event_col], label=str(g))
+                    sub_df = df.loc[mask].dropna(subset=[dur_col, event_col])
                     
-                    # Get KM data
+                    kmf = KaplanMeierFitter()
+                    kmf.fit(sub_df[dur_col], sub_df[event_col], label=str(g))
+                    kmf_results[g] = (sub_df[dur_col], sub_df[event_col])
+                    
+                    # Plot survival function
                     survival_df = kmf.survival_function_
-                    unique_times = dists[dur_col].unique()
-                    
-                    for t in unique_times:
-                        at_risk = dists[dists[dur_col] >= t]
-                        events = at_risk[at_risk[event_col] == 1]
-                        d_i = len(events[events[dur_col] == t])
-                        n_i = len(at_risk)
-                        
-                        if n_i > 0:
-                            survival *= (1 - d_i/n_i)
-                        km_data.append({'Time': t, 'Survival Probability': survival})
-                    return pd.DataFrame(km_data)
+                    fig.add_trace(go.Scatter(
+                        x=survival_df.index,
+                        y=survival_df[str(g)],
+                        mode='lines',
+                        name=str(g),
+                        line_shape='hv'
+                    ))
                 
-                fig = go.Figure()
-                if group_col:
-                    groups = df[group_col].unique()
-                    for g in groups:
-                        sub_df = df[df[group_col] == g]
-                        km = calculate_km(sub_df)
-                        fig.add_trace(go.Scatter(x=km['Time'], y=km['Survival Probability'], mode='lines', step='hv', name=str(g)))
-                else:
-                    km = calculate_km(df)
-                    fig.add_trace(go.Scatter(x=km['Time'], y=km['Survival Probability'], mode='lines', step='hv', name='All Data'))
-                    
-                fig.update_layout(title="Kaplan-Meier Survival Curve (Manual)", xaxis_title="Time", yaxis_title="Survival Probability")
-                safe_plot(fig, use_container_width=True)
+                # Log-Rank Test
+                if len(groups) == 2:
+                    g1, g2 = list(groups)[:2]
+                    try:
+                        result = logrank_test(
+                            kmf_results[g1][0], kmf_results[g2][0],
+                            kmf_results[g1][1], kmf_results[g2][1]
+                        )
+                        
+                        st.subheader("Log-Rank Test")
+                        c1, c2, c3 = st.columns(3)
+                        c1.metric("Test Statistic", f"{result.test_statistic:.4f}")
+                        c2.metric("P-Value", f"{result.p_value:.4f}")
+                        c3.metric("Result", "✓ Significant" if result.p_value < 0.05 else "✗ Not Sig.")
+                    except Exception as e:
+                        st.warning(f"Could not run Log-Rank test: {e}")
+
+            else:
+                sub_df = df.dropna(subset=[dur_col, event_col])
+                kmf = KaplanMeierFitter()
+                kmf.fit(sub_df[dur_col], sub_df[event_col], label='All Data')
+                
+                survival_df = kmf.survival_function_
+                fig.add_trace(go.Scatter(
+                    x=survival_df.index,
+                    y=survival_df['All Data'],
+                    mode='lines',
+                    name='All Data',
+                    line_shape='hv'
+                ))
+            
+            fig.update_layout(
+                title="Kaplan-Meier Survival Curve",
+                xaxis_title="Time",
+                yaxis_title="Survival Probability",
+                yaxis_range=[0, 1.05]
+            )
+            safe_plot(fig, use_container_width=True)
+        else:
+            st.warning("Install `lifelines` for full survival analysis: `pip install lifelines`")
 
 
 def render_power_analysis(df):
