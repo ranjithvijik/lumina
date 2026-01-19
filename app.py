@@ -173,12 +173,18 @@ st.markdown("""
              fill: var(--text-color) !important;
         }
         
-        /* 10. Buttons (Force standard text color) */
-        button {
+        /* 10. Buttons (Force standard text color & White Background) */
+        div.stButton > button {
             color: var(--text-color) !important;
+            background-color: #ffffff !important;
+            border: 1px solid #d0d7de !important;
         }
-        button p {
-            color: var(--text-color) !important;
+        div.stButton > button:hover {
+            border-color: #00ADB5 !important;
+            color: #00ADB5 !important;
+        }
+        div.stButton > button p {
+            color: inherit !important;
         }
         
         /* 11. Alerts (Success, Info, Warning, Error) */
@@ -315,7 +321,7 @@ def recommend_chart_type(x_col, y_col, df):
     y_type = df[y_col].dtype if y_col else None
     
     is_x_num = pd.api.types.is_numeric_dtype(x_type)
-    is_x_cat = pd.api.types.is_object_dtype(x_type) or pd.api.types.is_categorical_dtype(x_type)
+    is_x_cat = pd.api.types.is_object_dtype(x_type) or isinstance(x_type, pd.CategoricalDtype)
     is_x_date = pd.api.types.is_datetime64_any_dtype(x_type)
     
     is_y_num = pd.api.types.is_numeric_dtype(y_type) if y_type else False
@@ -1082,7 +1088,7 @@ def render_correlation_analysis(df):
                                     mode='lines', line_color='grey',
                                     hoverinfo='none', showlegend=False))
         
-        fig.update_xaxes(ticktext=dendro['ivl'], tickvals=range(10, 10*len(dendro['ivl']), 10))
+        fig.update_xaxes(ticktext=dendro['ivl'], tickvals=list(range(10, 10*len(dendro['ivl']), 10)))
         fig.update_layout(title="Correlation Dendrogram", 
                          xaxis_title="Features", yaxis_title="Distance",
                          height=500)
@@ -1418,7 +1424,14 @@ def render_regression(df):
         # VIF for multicollinearity
         vif_data = pd.DataFrame()
         vif_data["Feature"] = features
-        vif_data["VIF"] = [variance_inflation_factor(X.values, i) for i in range(X.shape[1])]
+        try:
+            # Ensure safe VIF calculation
+            if X.shape[1] > 1:
+                vif_data["VIF"] = [variance_inflation_factor(X.values, i) for i in range(X.shape[1])]
+            else:
+                vif_data["VIF"] = [0] # Not applicable for single feature
+        except Exception:
+            vif_data["VIF"] = [0] * len(features)
         
         st.subheader("Multicollinearity Check (VIF)")
         safe_dataframe(vif_data)
