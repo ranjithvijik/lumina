@@ -172,6 +172,34 @@ st.markdown("""
         [data-testid="stFileUploader"] svg {
              fill: var(--text-color) !important;
         }
+        
+        /* 10. Buttons (Force standard text color) */
+        button {
+            color: var(--text-color) !important;
+        }
+        button p {
+            color: var(--text-color) !important;
+        }
+        
+        /* 11. Alerts (Success, Info, Warning, Error) */
+        div[data-baseweb="notification"] p {
+            color: var(--text-color) !important;
+        }
+        
+        /* 12. Expander */
+        .streamlit-expanderHeader {
+            background-color: #ffffff !important;
+            color: var(--text-color) !important;
+        }
+        .streamlit-expanderContent {
+            background-color: #ffffff !important;
+            color: var(--text-color) !important;
+        }
+        
+        /* 13. Dataframes (Header Fix) */
+        [data-testid="stDataFrame"] th {
+            color: var(--text-color) !important;
+        }
     </style>
 """, unsafe_allow_html=True)
 
