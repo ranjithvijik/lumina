@@ -360,37 +360,31 @@ def stat_box(title=None):
     finally:
         st.markdown("</div>", unsafe_allow_html=True)
 
+import uuid
+
 def safe_dataframe(data, **kwargs):
-    """Wrapper for safe_dataframe that handles Arrow compatibility and deprecations."""
     if data is None: return
     
-    # Fix Arrow handling of mixed types in Object columns
-    # We copy to display-only version to not affect analysis
     df_disp = data.copy()
     for col in df_disp.select_dtypes(include=['object']):
         try:
             df_disp[col] = df_disp[col].astype(str)
         except: pass
-        
-    # Handle deprecation: explicit width vs use_container_width
-    if 'use_container_width' in kwargs:
-        del kwargs['use_container_width'] # Remove old arg
     
-    # Default to stretch if not specified (legacy behavior)
-    if 'width' not in kwargs:
-        kwargs['width'] = "stretch" # Streamlit 1.53+ syntax
-        
-    st.dataframe(df_disp, **kwargs)
+    # Remove deprecated/invalid params
+    kwargs.pop('use_container_width', None)
+    kwargs.pop('width', None)
+    
+    # Use the standard parameter that works across versions
+    st.dataframe(df_disp, use_container_width=True, **kwargs)
 
 def safe_plot(fig, **kwargs):
-    """Wrapper for safe_plot that handles deprecations."""
     if fig is None: return
     
-    if 'use_container_width' in kwargs:
-        del kwargs['use_container_width']
-        
-    # Default to stretch
-    st.plotly_chart(fig, width="stretch", **kwargs)
+    kwargs.pop('use_container_width', None)
+    kwargs.pop('width', None)
+    
+    st.plotly_chart(fig, use_container_width=True, **kwargs)
 
 def get_column_types(df):
     numeric = df.select_dtypes(include=[np.number]).columns.tolist()
@@ -415,7 +409,9 @@ def check_dataset_size(df, limit=50000, phase_name="this analysis"):
     """Global performance guard for large datasets."""
     if len(df) > limit:
         st.warning(f"⚠️ Large dataset detected ({len(df):,} rows) for {phase_name}.")
-        if st.checkbox("Sample data for performance?", value=True, key=f"sample_{phase_name}"):
+        # Use unique key to prevent collisions
+        unique_key = f"sample_{phase_name}_{uuid.uuid4().hex[:8]}"
+        if st.checkbox("Sample data for performance?", value=True, key=unique_key):
             return df.sample(limit, random_state=42)
     return df
 
@@ -1675,11 +1671,6 @@ def render_predictive_modeling(df):
                                     default=num_cols[:min(3, len(num_cols))])
             
             if features:
-                # Performance Guard
-                if len(df) > 50000:
-                    st.warning("⚠️ Large dataset detected. Sampling to 50k rows for performance.")
-                    df = df.sample(50000, random_state=42)
-
                 # Clean Data
                 X, y = clean_xy(df, target, features)
                 
@@ -1689,7 +1680,6 @@ def render_predictive_modeling(df):
 
                 # Encode Target if Categorical
                 if problem_type == "Classification": # Assuming problem_type is the task_type
-                    from sklearn.preprocessing import LabelEncoder
                     le = LabelEncoder()
                     y = le.fit_transform(y)
                     target_labels = le.classes_
@@ -2767,14 +2757,6 @@ def main():
     
     if 'analysis_history' not in st.session_state:
         st.session_state.analysis_history = []
-
-    def safe_render(render_func, df):
-        try:
-            render_func(df)
-        except Exception as e:
-            st.error(f"An error occurred: {str(e)}")
-            if st.checkbox("Show technical details"):
-                st.exception(e)
 
     if phase == "Monitor": safe_render(render_monitor, df)
     elif phase == "Explore": safe_render(render_explore, df)

@@ -115,8 +115,9 @@ class TestLuminaUtils(unittest.TestCase):
             self.assertTrue(pd.api.types.is_string_dtype(df_arg['mixed']))
             
             # Check kwarg replacement
-            self.assertNotIn('use_container_width', kwargs)
-            self.assertEqual(kwargs.get('width'), 'stretch')
+            self.assertIn('use_container_width', kwargs)
+            self.assertTrue(kwargs['use_container_width'])
+            self.assertNotIn('width', kwargs)
 
     def test_safe_plot_logic(self):
         """Test safe_plot logic."""
@@ -130,8 +131,9 @@ class TestLuminaUtils(unittest.TestCase):
             args, kwargs = mock_st_plot.call_args
             
             self.assertEqual(args[0], mock_fig)
-            self.assertNotIn('use_container_width', kwargs)
-            self.assertEqual(kwargs.get('width'), 'stretch')
+            self.assertIn('use_container_width', kwargs)
+            self.assertTrue(kwargs['use_container_width'])
+            self.assertNotIn('width', kwargs)
 
 if __name__ == '__main__':
     unittest.main()
