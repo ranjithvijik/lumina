@@ -6,7 +6,7 @@ plotly
 scikit-learn
 statsmodels
 xgboost
-shap
+
 seaborn
 lifelines
 xlsxwriter

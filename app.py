@@ -153,14 +153,7 @@ def stat_box(title=None):
 def get_column_types(df):
     numeric = df.select_dtypes(include=[np.number]).columns.tolist()
     categorical = df.select_dtypes(include=['object', 'category', 'bool']).columns.tolist()
-    datetime_cols = []
-    try:
-        datetime_cols = df.select_dtypes(include=['datetime64[ns]', 'datetime64[ns, tz]']).columns.tolist()
-    except TypeError:
-        pass
-        
-    if not datetime_cols:
-        datetime_cols = df.select_dtypes(include=['datetime']).columns.tolist()
+    datetime_cols = df.select_dtypes(include=['datetime']).columns.tolist()
     return numeric, categorical, datetime_cols
 
 def clean_xy(df, target, features):
