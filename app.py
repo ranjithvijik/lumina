@@ -154,6 +154,24 @@ st.markdown("""
             color: var(--text-color) !important;
         }
         .stat-summary strong { color: #00ADB5 !important; }
+        
+        /* 9. File Uploader Fix */
+        [data-testid="stFileUploader"] {
+            background-color: #ffffff;
+            border-radius: 10px;
+            padding: 10px;
+            border: 1px dashed #e0e0e0;
+        }
+        [data-testid="stFileUploader"] section {
+            background-color: #ffffff !important;
+        }
+        [data-testid="stFileUploader"] div, [data-testid="stFileUploader"] span, [data-testid="stFileUploader"] small {
+             color: var(--text-color) !important;
+        }
+        /* Icon color */
+        [data-testid="stFileUploader"] svg {
+             fill: var(--text-color) !important;
+        }
     </style>
 """, unsafe_allow_html=True)
 
