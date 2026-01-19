@@ -184,6 +184,16 @@ st.markdown("""
         [data-testid="stFileUploader"] svg {
              fill: var(--text-color) !important;
         }
+        /* Browse Button Fix */
+        [data-testid="stFileUploader"] button {
+             color: var(--text-color) !important;
+             background-color: #ffffff !important;
+             border: 1px solid #d0d7de !important;
+        }
+        [data-testid="stFileUploader"] button:hover {
+             border-color: #00ADB5 !important;
+             color: #00ADB5 !important;
+        }
         
         /* 10. Buttons (Force standard text color & White Background) */
         div.stButton > button {
