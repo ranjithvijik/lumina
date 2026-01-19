@@ -666,7 +666,16 @@ def render_anomaly_detection(df):
     contamination = st.slider("Contamination Rate (expected % of anomalies)", 0.01, 0.2, 0.05)
     
     data_clean = df[features].dropna()
-    X_scaled = StandardScaler().fit_transform(data_clean)
+    try:
+        if data_clean.empty:
+            st.warning("No data available for clustering after cleaning.")
+            return
+
+        scaler = StandardScaler()
+        X_scaled = scaler.fit_transform(data_clean)
+    except ValueError as e:
+        st.error(f"Scaling Error: {e}")
+        return
     
     col1, col2, col3 = st.columns(3)
     
@@ -943,6 +952,8 @@ def render_correlation_analysis(df):
     if len(num_cols) > 2:
         # Distance matrix from correlation
         distance_matrix = 1 - np.abs(corr_matrix)
+        # Handle NaNs in distance matrix (e.g., perfect correlation or constant)
+        distance_matrix = distance_matrix.fillna(0)
         
         # Use values for pdist to treat rows as vectors
         linkage_matrix = linkage(pdist(distance_matrix.values, metric='euclidean'), method='ward')
