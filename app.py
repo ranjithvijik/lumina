@@ -67,57 +67,93 @@ st.set_page_config(
 
 st.markdown("""
     <style>
-        /* Force light theme colors regardless of system settings */
-        .stApp { background-color: #f4f6f9 !important; color: #31333F !important; }
-        
-        /* Headers and Text */
+        /* GLOBAL THEME OVERRIDE (Forces Light Mode) */
+        :root {
+            --primary-color: #00ADB5;
+            --background-color: #f4f6f9;
+            --secondary-background-color: #ffffff;
+            --text-color: #262730;
+            --font: "Inter", sans-serif;
+        }
+
+        /* 1. Main Application */
+        .stApp {
+            background-color: var(--background-color);
+            color: var(--text-color);
+        }
+
+        /* 2. Text & Headings */
         h1, h2, h3, h4, h5, h6, p, label, .stMarkdown, .stText, span {
-            color: #31333F !important;
+            color: var(--text-color) !important;
         }
-        
-        /* Widget Labels & Options */
-        .stSelectbox label, .stMultiSelect label, .stRadio label, .stNumberInput label, .stTextInput label {
-            color: #31333F !important;
-            font-weight: 600 !important;
+
+        /* 3. Inputs & Widgets (Force Dark Text on Light Background) */
+        .stTextInput input, .stNumberInput input, .stSelectbox, .stMultiSelect {
+            color: var(--text-color) !important;
         }
-        
-        /* Phase Container (Exception: Dark Background) */
+        /* Fix label contrast */
+        div[data-baseweb="select"] span { color: var(--text-color) !important; }
+
+        /* 4. Sidebar (Optional Contrast Enhancement) */
+        [data-testid="stSidebar"] {
+            background-color: #ffffff;
+            border-right: 1px solid #e0e0e0;
+        }
+        [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] span {
+             color: var(--text-color) !important;
+        }
+
+        /* 5. Phase Container (Dark Gradient) - Force White Text */
         .phase-container {
             background: linear-gradient(90deg, #2c3e50 0%, #4ca1af 100%);
             padding: 20px;
             border-radius: 15px;
-            color: white !important; /* Force White here */
             margin-bottom: 25px;
             box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            color: white !important;
         }
-        .phase-container h1, .phase-container div { color: white !important; }
-        
-        .phase-title { font-size: 24px; font-weight: bold; margin-bottom: 5px; }
-        .phase-subtitle { font-size: 14px; opacity: 0.9; }
-        
-        /* Metrics */
+        .phase-container h1, .phase-container div, .phase-container span { 
+            color: white !important; 
+        }
+
+        /* 6. Metrics (White Card) */
         div[data-testid="stMetric"] {
-            background: #ffffff; border-radius: 12px; padding: 15px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.05); border: 1px solid #e1e4e8;
+            background: #ffffff;
+            border-radius: 12px;
+            padding: 15px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            border: 1px solid #e1e4e8;
         }
-        div[data-testid="stMetric"] label { color: #555 !important; }
-        div[data-testid="stMetric"] div[data-testid="stMetricValue"] { color: #31333F !important; }
-        
-        /* Summary Box */
-        .stat-summary {
-            background-color: #f0f4f8; padding: 12px; border-left: 4px solid #00ADB5;
-            border-radius: 6px; margin-bottom: 12px;
-            color: #31333F !important;
-        }
-        .stat-summary strong { color: #00ADB5 !important; }
-        
-        /* Tabs */
+        div[data-testid="stMetric"] label { color: #555 !important; } /* Label is medium grey */
+        div[data-testid="stMetric"] div[data-testid="stMetricValue"] { color: var(--text-color) !important; }
+
+        /* 7. Tabs */
         .stTabs [data-baseweb="tab-list"] { gap: 24px; }
         .stTabs [data-baseweb="tab"] {
-            height: 50px; white-space: pre-wrap; background-color: #fff;
-            border-radius: 4px 4px 0px 0px; gap: 1px; padding-top: 10px; padding-bottom: 10px;
-            color: #31333F !important;
+            height: 50px;
+            white-space: pre-wrap;
+            background-color: #ffffff;
+            border-radius: 4px 4px 0px 0px;
+            gap: 1px;
+            padding-top: 10px;
+            padding-bottom: 10px;
+            color: var(--text-color) !important;
         }
+        .stTabs [aria-selected="true"] {
+             color: #00ADB5 !important;
+             font-weight: bold;
+        }
+
+        /* 8. Summary Boxes */
+        .stat-summary {
+            background-color: #f0f4f8; 
+            padding: 12px; 
+            border-left: 4px solid #00ADB5;
+            border-radius: 6px; 
+            margin-bottom: 12px;
+            color: var(--text-color) !important;
+        }
+        .stat-summary strong { color: #00ADB5 !important; }
     </style>
 """, unsafe_allow_html=True)
 
