@@ -12,3 +12,4 @@ lifelines
 xlsxwriter
 openpyxl
 pyarrow
+xlrd
