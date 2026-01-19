@@ -560,7 +560,7 @@ def render_data_quality(df):
             
             # Visualization
             fig = go.Figure()
-            fig.add_trace(go.Scatter(x=range(len(data_clean)), y=data_clean, 
+            fig.add_trace(go.Scatter(x=list(range(len(data_clean))), y=data_clean, 
                                     mode='markers', name='Normal',
                                     marker=dict(color='blue', size=6)))
             fig.add_trace(go.Scatter(x=data_clean[outliers].index, y=data_clean[outliers],
