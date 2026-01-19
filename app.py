@@ -2568,28 +2568,73 @@ def sidebar_processor():
                 st.session_state.data = df
                 st.success(f"✅ Active Data: {len(df):,} rows")
 
-                with st.expander("🛠️ Data Preparation", expanded=False):
-                    st.caption(f"Processing Data")
+                with st.expander("🛠️ Robust ETL Pipeline", expanded=False):
+                    st.caption(f"Data Cleaning & Transformation")
                     
-                    drop_cols = st.multiselect("Drop Columns", df.columns)
+                    # 1. Column Management
+                    st.markdown("**1. Column Management**")
+                    all_cols = df.columns.tolist()
+                    drop_cols = st.multiselect("Drop Columns", all_cols)
                     if drop_cols: 
                         df = df.drop(columns=drop_cols)
                     
-                    if st.checkbox("Handle Missing Values"):
-                        method = st.radio("Method", ["Drop Rows", "Fill 0", "Fill Mean/Mode"])
-                        if method == "Drop Rows":
+                    # 2. Text Standardization
+                    st.markdown("**2. Text Standardization**")
+                    text_ops = st.multiselect("Text Operations", 
+                                            ["Trim Whitespace", "To Lowercase", "To Uppercase", "Remove Special Chars"])
+                    
+                    if text_ops:
+                        obj_cols = df.select_dtypes(include=['object']).columns
+                        for col in obj_cols:
+                            if "Trim Whitespace" in text_ops:
+                                df[col] = df[col].astype(str).str.strip()
+                            if "To Lowercase" in text_ops:
+                                df[col] = df[col].astype(str).str.lower()
+                            if "To Uppercase" in text_ops:
+                                df[col] = df[col].astype(str).str.upper()
+                            if "Remove Special Chars" in text_ops:
+                                df[col] = df[col].astype(str).str.replace(r'[^A-Za-z0-9\s]', '', regex=True)
+
+                    # 3. Missing Value Handling
+                    st.markdown("**3. Missing Values**")
+                    if st.checkbox("Handle Missing Data"):
+                        miss_method = st.selectbox("Imputation Method", 
+                                                 ["Drop Rows", "Fill 0", "Fill Mean (Numeric) / Mode (Cat)", 
+                                                  "Forward Fill (Time Series)", "Backward Fill"])
+                        
+                        if miss_method == "Drop Rows":
                             df = df.dropna()
-                        elif method == "Fill 0":
+                        elif miss_method == "Fill 0":
                             df = df.fillna(0)
-                        elif method == "Fill Mean/Mode":
+                        elif miss_method == "Fill Mean (Numeric) / Mode (Cat)":
                             num = df.select_dtypes(include=np.number).columns
                             cat = df.select_dtypes(exclude=np.number).columns
-                            df[num] = df[num].fillna(df[num].mean())
+                            if not num.empty: df[num] = df[num].fillna(df[num].mean())
                             for c in cat:
-                                df[c] = df[c].fillna(df[c].mode()[0] if not df[c].mode().empty else "Unknown")
-                                
-                    if st.checkbox("Remove Duplicates"):
+                                if not df[c].mode().empty:
+                                    df[c] = df[c].fillna(df[c].mode()[0])
+                                else:
+                                    df[c] = df[c].fillna("Unknown")
+                        elif miss_method == "Forward Fill (Time Series)":
+                            df = df.ffill()
+                        elif miss_method == "Backward Fill":
+                            df = df.bfill()
+                            
+                    # 4. Data Type Enforcement
+                    st.markdown("**4. Type Standardization**")
+                    if st.checkbox("Enforce Numeric Types"):
+                        num_force_cols = st.multiselect("Select Columns to Force Numeric", df.columns)
+                        for c in num_force_cols:
+                            df[c] = pd.to_numeric(df[c], errors='coerce')
+                            
+                    # 5. Deduplication
+                    st.markdown("**5. Deduplication**")
+                    if st.checkbox("Remove Duplicate Rows"):
+                        init_len = len(df)
                         df = df.drop_duplicates()
+                        final_len = len(df)
+                        if init_len != final_len:
+                            st.info(f"Removed {init_len - final_len} duplicates")
 
                 st.divider()
                 st.markdown("### 📥 Export Output")
