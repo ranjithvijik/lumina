@@ -94,5 +94,44 @@ class TestLuminaUtils(unittest.TestCase):
         df_valid_conv = smart_date_converter(df_valid)
         self.assertTrue(pd.api.types.is_datetime64_any_dtype(df_valid_conv['date_col']))
 
+    def test_safe_dataframe_logic(self):
+        """Test safe_dataframe logic (not the actual streamlit call)."""
+        # Test mixed type conversion
+        df_mixed = pd.DataFrame({'mixed': [1, 'a', 2.5]})
+        # In app.py, safe_dataframe copies and converts object cols to str
+        # We can simulate the logic here or import the function if possible (but it calls st.dataframe)
+        # Since safe_dataframe is in app.py and calls st, we can mock st.
+        
+        from unittest.mock import patch, MagicMock
+        with patch('app.st.dataframe') as mock_st_df:
+            import app
+            app.safe_dataframe(df_mixed, use_container_width=True)
+            
+            # Verify call args
+            args, kwargs = mock_st_df.call_args
+            df_arg = args[0]
+            
+            # Check type conversion
+            self.assertTrue(pd.api.types.is_string_dtype(df_arg['mixed']))
+            
+            # Check kwarg replacement
+            self.assertNotIn('use_container_width', kwargs)
+            self.assertEqual(kwargs.get('width'), 'stretch')
+
+    def test_safe_plot_logic(self):
+        """Test safe_plot logic."""
+        from unittest.mock import patch, MagicMock
+        mock_fig = MagicMock()
+        
+        with patch('app.st.plotly_chart') as mock_st_plot:
+            import app
+            app.safe_plot(mock_fig, use_container_width=True)
+            
+            args, kwargs = mock_st_plot.call_args
+            
+            self.assertEqual(args[0], mock_fig)
+            self.assertNotIn('use_container_width', kwargs)
+            self.assertEqual(kwargs.get('width'), 'stretch')
+
 if __name__ == '__main__':
     unittest.main()
