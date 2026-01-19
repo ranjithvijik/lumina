@@ -67,26 +67,51 @@ st.set_page_config(
 
 st.markdown("""
     <style>
-        .stApp { background-color: #f4f6f9; color: #31333F; }
+        /* Force light theme colors regardless of system settings */
+        .stApp { background-color: #f4f6f9 !important; color: #31333F !important; }
+        
+        /* Headers and Text */
+        h1, h2, h3, h4, h5, h6, p, label, .stMarkdown, .stText, span {
+            color: #31333F !important;
+        }
+        
+        /* Widget Labels & Options */
+        .stSelectbox label, .stMultiSelect label, .stRadio label, .stNumberInput label, .stTextInput label {
+            color: #31333F !important;
+            font-weight: 600 !important;
+        }
+        
+        /* Phase Container (Exception: Dark Background) */
         .phase-container {
             background: linear-gradient(90deg, #2c3e50 0%, #4ca1af 100%);
             padding: 20px;
             border-radius: 15px;
-            color: white;
+            color: white !important; /* Force White here */
             margin-bottom: 25px;
             box-shadow: 0 4px 12px rgba(0,0,0,0.15);
         }
+        .phase-container h1, .phase-container div { color: white !important; }
+        
         .phase-title { font-size: 24px; font-weight: bold; margin-bottom: 5px; }
         .phase-subtitle { font-size: 14px; opacity: 0.9; }
+        
+        /* Metrics */
         div[data-testid="stMetric"] {
             background: #ffffff; border-radius: 12px; padding: 15px;
             box-shadow: 0 4px 6px rgba(0,0,0,0.05); border: 1px solid #e1e4e8;
-            color: #31333F !important;
         }
+        div[data-testid="stMetric"] label { color: #555 !important; }
+        div[data-testid="stMetric"] div[data-testid="stMetricValue"] { color: #31333F !important; }
+        
+        /* Summary Box */
         .stat-summary {
             background-color: #f0f4f8; padding: 12px; border-left: 4px solid #00ADB5;
             border-radius: 6px; margin-bottom: 12px;
+            color: #31333F !important;
         }
+        .stat-summary strong { color: #00ADB5 !important; }
+        
+        /* Tabs */
         .stTabs [data-baseweb="tab-list"] { gap: 24px; }
         .stTabs [data-baseweb="tab"] {
             height: 50px; white-space: pre-wrap; background-color: #fff;
