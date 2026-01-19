@@ -1182,8 +1182,17 @@ def render_statistical_test(df):
         
         from scipy.stats import probplot
         qq = probplot(data_clean)
+        # qq[0][0] = theoretical quantiles (x)
+        # qq[0][1] = ordered values (y)
+        # qq[1] = (slope, intercept, _)
+        slope, intercept, _ = qq[1]
+        
+        # Calculate regression line points
+        x_trend = np.array([min(qq[0][0]), max(qq[0][0])])
+        y_trend = slope * x_trend + intercept
+        
         fig.add_trace(go.Scatter(x=qq[0][0], y=qq[0][1], mode='markers', name='Data Points'), row=1, col=2)
-        fig.add_trace(go.Scatter(x=qq[1][0], y=qq[1][1], mode='lines', name='Reference Line'), row=1, col=2)
+        fig.add_trace(go.Scatter(x=x_trend, y=y_trend, mode='lines', name='Reference Line'), row=1, col=2)
         
         safe_plot(fig, use_container_width=True)
 
