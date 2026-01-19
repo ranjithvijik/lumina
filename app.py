@@ -537,6 +537,10 @@ def render_explore(df):
     num_cols, cat_cols, date_cols = get_column_types(df)
     all_cols = df.columns.tolist()
 
+    if not all_cols:
+        st.warning("Dataset has no columns to visualize.")
+        return
+
     with st.container():
         c1, c2, c3, c4 = st.columns([1, 1, 1, 1])
         
@@ -545,9 +549,20 @@ def render_explore(df):
         
         with c2:
             def_y_idx = 0
+            # Default to first numeric column if possible
             if len(num_cols) > 0 and x_col not in num_cols:
-                def_y_idx = all_cols.index(num_cols[0])
-            y_col = st.selectbox("Y Axis (Optional)", ["None"] + all_cols, index=def_y_idx + 1 if "None" in ["None"] + all_cols else 0)
+                try:
+                    def_y_idx = all_cols.index(num_cols[0])
+                except ValueError:
+                    def_y_idx = 0
+            
+            # Safe index calculation
+            options_y = ["None"] + all_cols
+            target_idx = def_y_idx + 1
+            if target_idx >= len(options_y):
+                target_idx = 0
+                
+            y_col = st.selectbox("Y Axis (Optional)", options_y, index=target_idx)
             if y_col == "None": y_col = None
 
         rec_chart = recommend_chart_type(x_col, y_col, df)
@@ -1271,6 +1286,10 @@ def render_statistical_test(df):
 
     # --- EQUAL VARIANCE TEST ---
     elif test_type == "Equal Variance Test (Levene)":
+        if not cat_cols:
+            st.error("This test requires at least one categorical column for grouping.")
+            return
+
         with col1:
             var = st.selectbox("Select Variable", num_cols)
         with col2:
@@ -1296,6 +1315,10 @@ def render_statistical_test(df):
 
     # --- T-TEST ---
     elif test_type == "T-Test (Independent Samples)":
+        if not cat_cols:
+            st.error("This test requires at least one categorical column for grouping.")
+            return
+
         with col1:
             var = st.selectbox("Select Variable", num_cols)
         with col2:
@@ -1338,6 +1361,10 @@ def render_statistical_test(df):
 
     # --- MANN-WHITNEY U TEST ---
     elif test_type == "Mann-Whitney U Test":
+        if not cat_cols:
+            st.error("This test requires at least one categorical column for grouping.")
+            return
+
         with col1:
             var = st.selectbox("Select Variable", num_cols)
         with col2:
@@ -1363,6 +1390,10 @@ def render_statistical_test(df):
 
     # --- ONE-WAY ANOVA ---
     elif test_type == "One-Way ANOVA":
+        if not cat_cols:
+            st.error("This test requires at least one categorical column for grouping.")
+            return
+
         with col1:
             var = st.selectbox("Select Variable", num_cols)
         with col2:
@@ -1386,6 +1417,10 @@ def render_statistical_test(df):
 
     # --- KRUSKAL-WALLIS ---
     elif test_type == "Kruskal-Wallis Test":
+        if not cat_cols:
+            st.error("This test requires at least one categorical column for grouping.")
+            return
+
         with col1:
             var = st.selectbox("Select Variable", num_cols)
         with col2:
