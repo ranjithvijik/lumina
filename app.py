@@ -24,8 +24,60 @@ import warnings
 import hashlib
 import pickle
 import uuid
+import sqlite3
+import requests
 from typing import Dict, List, Optional, Tuple, Any
 warnings.filterwarnings('ignore')
+
+# ============================================================================
+# DATA ENGINEERING LAYER (v1.3)
+# ============================================================================
+
+class SQLConnector:
+    """Handles database connections and queries."""
+    def __init__(self, connection_string: str = "sqlite:///:memory:"):
+        self.conn_str = connection_string
+        
+    def execute_query(self, query: str) -> pd.DataFrame:
+        """Execute SQL query and return DataFrame."""
+        try:
+            # Basic SQLite support
+            if "sqlite" in self.conn_str:
+                path = self.conn_str.replace("sqlite:///", "")
+                if path == ":memory:":
+                    return pd.DataFrame() # Dummy for demo
+                with sqlite3.connect(path) as conn:
+                    return pd.read_sql(query, conn)
+            # Placeholder for other DBs (sqlalchemy required for prod)
+            else:
+                return pd.DataFrame({"Error": ["Only SQLite supported in this demo mode."]})
+        except Exception as e:
+            return pd.DataFrame({"Error": [str(e)]})
+
+class APIFetcher:
+    """Handles REST API data fetching."""
+    def fetch_json(self, url: str, params: Dict = None) -> pd.DataFrame:
+        """Fetch JSON from API and convert to DataFrame."""
+        try:
+            response = requests.get(url, params=params, timeout=10)
+            if response.status_code == 200:
+                data = response.json()
+                # Attempt to normalize common JSON structures
+                if isinstance(data, list):
+                    return pd.json_normalize(data)
+                elif isinstance(data, dict):
+                    # Check for common keys like 'data', 'results', 'items'
+                    for key in ['data', 'results', 'items', 'records']:
+                        if key in data and isinstance(data[key], list):
+                            return pd.json_normalize(data[key])
+                    return pd.json_normalize([data]) # Single dict
+                return pd.DataFrame()
+            else:
+                st.error(f"API Error {response.status_code}")
+                return None
+        except Exception as e:
+            st.error(f"Connection Failed: {e}")
+            return None
 
 # Advanced Analytics Imports (Professional Phases)
 from sklearn.ensemble import IsolationForest, RandomForestClassifier, RandomForestRegressor, GradientBoostingClassifier, GradientBoostingRegressor, VotingClassifier, VotingRegressor
@@ -33,11 +85,19 @@ from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 from sklearn.neighbors import LocalOutlierFactor, NearestNeighbors
 from sklearn.preprocessing import PolynomialFeatures, RobustScaler, MinMaxScaler, LabelEncoder, StandardScaler
 from sklearn.linear_model import LogisticRegression, LinearRegression
-from xgboost import XGBClassifier, XGBRegressor
 from sklearn.metrics import roc_auc_score, accuracy_score, r2_score, mean_squared_error, classification_report, confusion_matrix, f1_score
 from sklearn.model_selection import train_test_split, RandomizedSearchCV, cross_val_score
 from sklearn.inspection import partial_dependence
 import matplotlib.pyplot as plt
+
+# --- OPTIONAL DEPENDENCY CHECKS ---
+
+try:
+    import xgboost as xgb
+    from xgboost import XGBClassifier, XGBRegressor
+    XGBOOST_AVAILABLE = True
+except ImportError:
+    XGBOOST_AVAILABLE = False
 
 try:
     import shap
@@ -92,6 +152,39 @@ try:
 except ImportError:
     TOPIC_MODELING_AVAILABLE = False
 
+class SimpleSummarizer:
+    """Basic extractive summarizer using word frequency."""
+    def __init__(self):
+        self.stop_words = set(['the', 'and', 'is', 'of', 'to', 'in', 'it', 'that', 'with', 'as', 'for', 'was', 'on', 'at', 'by', 'an', 'be'])
+        
+    def summarize(self, text, num_sentences=3):
+        import re
+        # 1. Split sentences
+        sentences = re.split(r'(?<!\w\.\w.)(?<![A-Z][a-z]\.)(?<=\.|\?)\s', text)
+        if len(sentences) <= num_sentences:
+            return text
+            
+        # 2. Score words
+        word_freq = {}
+        for word in re.findall(r'\w+', text.lower()):
+            if word not in self.stop_words:
+                word_freq[word] = word_freq.get(word, 0) + 1
+        
+        # 3. Score sentences
+        sentence_scores = {}
+        for sent in sentences:
+            score = 0
+            for word in re.findall(r'\w+', sent.lower()):
+                if word in word_freq:
+                    score += word_freq[word]
+            sentence_scores[sent] = score
+            
+        # 4. Get top N
+        sorted_sents = sorted(sentence_scores.items(), key=lambda x: x[1], reverse=True)[:num_sentences]
+        # Sort by original order
+        final_sents = sorted([s[0] for s in sorted_sents], key=lambda x: sentences.index(x))
+        return ' '.join(final_sents)
+
 # Neural Network Imports
 try:
     from sklearn.neural_network import MLPClassifier, MLPRegressor
@@ -124,21 +217,6 @@ try:
 except ImportError:
     AUTOML_AVAILABLE = False
 
-# SHAP & XGBoost Availability Check
-try:
-    import xgboost as xgb
-    XGBOOST_AVAILABLE = True
-except ImportError:
-    XGBOOST_AVAILABLE = False
-
-# Note: SHAP check duplicated in user snippet, standardizing here
-if 'SHAP_AVAILABLE' not in globals():
-    try:
-        import shap
-        SHAP_AVAILABLE = True
-    except ImportError:
-        SHAP_AVAILABLE = False
-
 try:
     import lime
     import lime.lime_tabular
@@ -156,23 +234,6 @@ try:
     from statsmodels.tsa.arima.model import ARIMA
     from statsmodels.tsa.vector_ar.var_model import VAR
     from statsmodels.stats.multicomp import pairwise_tukeyhsd
-    from statsmodels.stats.anova import AnovaRM
-    STATSMODELS_ADV_AVAILABLE = True
-except ImportError:
-    STATSMODELS_ADV_AVAILABLE = False
-
-try:
-    import optuna
-    OPTUNA_AVAILABLE = True
-except ImportError:
-    OPTUNA_AVAILABLE = False
-
-try:
-    from lifetimes import BetaGeoFitter, GammaGammaFitter
-    from lifetimes.utils import summary_data_from_transaction_data
-    LIFETIMES_AVAILABLE = True
-except ImportError:
-    LIFETIMES_AVAILABLE = False
     from statsmodels.stats.anova import AnovaRM
     STATSMODELS_ADV_AVAILABLE = True
 except ImportError:
@@ -2681,6 +2742,46 @@ def render_market_basket(df):
             else:
                 st.warning("No rules found with current parameters. Try lowering support.")
 
+def generate_narrative_text(df):
+    """Generates a text summary of the dataframe."""
+    narrative = []
+    
+    # 1. Structure
+    narrative.append(f"This dataset consists of {len(df)} rows and {len(df.columns)} columns.")
+    num_cols = df.select_dtypes(include=[np.number]).columns
+    cat_cols = df.select_dtypes(exclude=[np.number]).columns
+    
+    narrative.append(f"It contains {len(num_cols)} numerical variables and {len(cat_cols)} categorical variables.")
+    
+    # 2. Key Stats
+    if len(num_cols) > 0:
+        col = num_cols[0]
+        avg = df[col].mean()
+        narrative.append(f"The average value for the primary numeric column '{col}' is {avg:.2f}.")
+        
+    # 3. Correlation
+    if len(num_cols) > 1:
+        corr_mat = df[num_cols].corr().abs()
+        np.fill_diagonal(corr_mat.values, 0)
+        max_c = corr_mat.max().max()
+        if max_c > 0.7:
+            r, c = corr_mat.stack().idxmax()
+            narrative.append(f"A strong correlation ({max_c:.2f}) was detected between '{r}' and '{c}'.")
+            
+    # 4. Outliers
+    outliers_total = 0
+    for col in num_cols[:3]:
+        q1 = df[col].quantile(0.25)
+        q3 = df[col].quantile(0.75)
+        iqr = q3 - q1
+        outliers = ((df[col] < (q1 - 1.5 * iqr)) | (df[col] > (q3 + 1.5 * iqr))).sum()
+        outliers_total += outliers
+        
+    if outliers_total > 0:
+        narrative.append(f"Statistically, {outliers_total} potential outliers were identified across the main numerical features, suggesting some extreme values in the dataset.")
+        
+    return " ".join(narrative)
+
 def render_smart_narrative(df):
     st.markdown("""
         <div class="phase-container">
@@ -2691,43 +2792,39 @@ def render_smart_narrative(df):
     
     if df is None: return
     
+    st.subheader("📝 Executive Summary")
+    narrative = generate_narrative_text(df)
+    st.write(narrative)
+    
+    st.divider()
+    st.subheader("💡 Detailed Insights")
+    
     num_cols = df.select_dtypes(include=[np.number]).columns.tolist()
     
-    st.subheader("💡 Key Insights")
-    
-    insights = []
-    
     # 1. Outlier Insight
-    for col in num_cols[:3]: # Limit to first 3 for speed
+    for col in num_cols[:3]: 
         q1 = df[col].quantile(0.25)
         q3 = df[col].quantile(0.75)
         iqr = q3 - q1
         outliers = ((df[col] < (q1 - 1.5 * iqr)) | (df[col] > (q3 + 1.5 * iqr))).sum()
         if outliers > 0:
-            insights.append(f"• **{col}**: Contains **{outliers}** outliers ({outliers/len(df)*100:.1f}% of data). Possible anomalies.")
+            st.write(f"• **{col}**: Contains **{outliers}** outliers ({outliers/len(df)*100:.1f}% of data). Possible anomalies.")
     
     # 2. Correlation Insight
     if len(num_cols) > 1:
         corr_mat = df[num_cols].corr()
-        # Find max correlation < 1
         np.fill_diagonal(corr_mat.values, 0)
         max_c = corr_mat.max().max()
         if max_c > 0.7:
             r, c = corr_mat.stack().idxmax()
-            insights.append(f"• **Strong Association**: **{r}** and **{c}** move together (Correlation: {max_c:.2f}).")
+            st.write(f"• **Strong Association**: **{r}** and **{c}** move together (Correlation: {max_c:.2f}).")
     
     # 3. skewness
     for col in num_cols[:3]:
         skew = df[col].skew()
         if abs(skew) > 1:
             desc = "Heavily right-skewed (high values tail)" if skew > 1 else "Heavily left-skewed (low values tail)"
-            insights.append(f"• **{col}**: {desc}. Consider Log transformation.")
-            
-    for i in insights:
-        st.write(i)
-        
-    st.divider()
-    st.caption("AI-Generated Insights based on Statistical Properties")
+            st.write(f"• **{col}**: {desc}. Consider Log transformation.")
 
 
 # ============================================================================
@@ -2975,37 +3072,58 @@ def render_network_graph(df):
         safe_plot(fig)
 
 def render_pdf_report(df):
-    """Generate PDF Report."""
+    """Generate PDF Report with Smart Narrative."""
     st.markdown("### 📄 PDF Report Generator")
     if df is None: return
     if not REPORTLAB_AVAILABLE: st.error("ReportLab not installed."); return
     
     title = st.text_input("Report Title", "Lumina Analytics Report")
     
-    if st.button("Generate PDF"):
-        buffer = io.BytesIO()
-        doc = SimpleDocTemplate(buffer, pagesize=A4)
-        styles = getSampleStyleSheet()
-        story = [Paragraph(title, styles['Title']), Spacer(1, 12)]
-        
-        # Summary
-        summary = f"Dataset contains {len(df)} rows and {len(df.columns)} columns."
-        story.append(Paragraph(summary, styles['Normal']))
-        story.append(Spacer(1, 12))
-        
-        # Stats
-        desc = df.describe().round(2).reset_index().values.tolist()
-        cols = ['Stat'] + df.describe().columns.tolist()
-        data = [cols] + desc
-        # Limit columns to fit page
-        if len(data[0]) > 6: data = [r[:6] for r in data]
-        
-        t = Table(data)
-        t.setStyle(TableStyle([('GRID', (0,0), (-1,-1), 1, colors.black)]))
-        story.append(t)
-        
-        doc.build(story)
-        st.download_button("Download PDF", buffer.getvalue(), "report.pdf", "application/pdf")
+    if st.button("Generate Smart PDF"):
+        with st.spinner("Compiling PDF..."):
+            buffer = io.BytesIO()
+            doc = SimpleDocTemplate(buffer, pagesize=A4)
+            styles = getSampleStyleSheet()
+            story = []
+            
+            # 1. Title
+            story.append(Paragraph(title, styles['Title']))
+            story.append(Spacer(1, 12))
+            story.append(Paragraph(f"Generated on {datetime.now().strftime('%Y-%m-%d %H:%M')}", styles['Normal']))
+            story.append(Spacer(1, 24))
+            
+            # 2. Executive Summary (Smart Narrative)
+            story.append(Paragraph("Executive Summary", styles['Heading2']))
+            narrative = generate_narrative_text(df)
+            story.append(Paragraph(narrative, styles['Normal']))
+            story.append(Spacer(1, 12))
+            
+            # 3. Data Statistics
+            story.append(Paragraph("Data Statistics", styles['Heading2']))
+            desc = df.describe().round(2).reset_index().values.tolist()
+            cols = ['Stat'] + df.describe().columns.tolist()
+            data = [cols] + desc
+            # Limit columns to fit page (max 6)
+            if len(data[0]) > 6: 
+                story.append(Paragraph("(Table truncated to first 6 columns)", styles['Italic']))
+                data = [r[:6] for r in data]
+            
+            t = Table(data)
+            t.setStyle(TableStyle([
+                ('BACKGROUND', (0,0), (-1,0), colors.grey),
+                ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
+                ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+                ('BOTTOMPADDING', (0,0), (-1,0), 12),
+                ('BACKGROUND', (0,1), (-1,-1), colors.beige),
+                ('GRID', (0,0), (-1,-1), 1, colors.black)
+            ]))
+            story.append(t)
+            
+            doc.build(story)
+            
+            st.success("PDF Generated Successfully!")
+            st.download_button("Download Report", buffer.getvalue(), "Lumina_Smart_Report.pdf", "application/pdf")
 
 # --- NEW ANALYTICS SUITES (2.0) ---
 
@@ -3355,8 +3473,10 @@ def render_deep_learning(df):
     X_train = scaler.fit_transform(X_train)
     X_test = scaler.transform(X_test)
     
-    tab1, tab2, tab3, tab4 = st.tabs(["AutoML", "NN Builder", "Hyperparameter Tuning", "Ensembling"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["AutoML", "NN Builder", "Hyperparameter Tuning", "Ensembling", "Architecture Viz"])
     
+    registry = ModelRegistry()
+
     # --- AutoML ---
     with tab1:
         st.subheader("AutoML Integration")
@@ -3380,8 +3500,13 @@ def render_deep_learning(df):
                 model.fit(X_train, y_train)
                 score = model.score(X_test, y_test)
                 results.append({"Model": name, "Score": score})
+                
+                # Auto-Register Best
+                if score > 0.8: 
+                   registry.register_model(f"AutoML_{name}", model, {"score": score}, features, target, "sklearn")
             
             st.dataframe(pd.DataFrame(results).sort_values("Score", ascending=False))
+            st.success("High performing models (>0.8) auto-saved to Registry.")
 
     # --- NN Builder ---
     with tab2:
@@ -3397,7 +3522,12 @@ def render_deep_learning(df):
                 mlp = MLPRegressor(hidden_layer_sizes=layers, activation=activation, max_iter=500)
             
             mlp.fit(X_train, y_train)
-            st.success(f"Training Complete. Score: {mlp.score(X_test, y_test):.4f}")
+            score = mlp.score(X_test, y_test)
+            st.success(f"Training Complete. Score: {score:.4f}")
+            
+            if st.button("💾 Save Model to Registry"):
+                registry.register_model(f"MLP_{layers}_{activation}", mlp, {"score": score}, features, target, "sklearn_mlp")
+                st.success("Model Saved!")
             
             fig = px.line(y=mlp.loss_curve_, title="Loss Curve")
             safe_plot(fig)
@@ -3448,6 +3578,21 @@ def render_deep_learning(df):
                 ereg = VotingRegressor(estimators=[('lr', reg1), ('rf', reg2)])
                 ereg.fit(X_train, y_train)
                 st.write(f"Ensemble R2: {ereg.score(X_test, y_test):.4f}")
+                
+    # --- Architecture Viz ---
+    with tab5:
+        st.subheader("Network Visualization")
+        st.caption("Visualizing current architecture settings")
+        
+        # Simple Visualization using Graphviz logic (simulated with Mermaid)
+        layers_viz = [f"Input ({len(features)})"] + [f"Dense ({l})" for l in layers] + ["Output (1)"]
+        
+        mermaid_code = "graph LR\n"
+        for i in range(len(layers_viz) - 1):
+            mermaid_code += f"    L{i}[{layers_viz[i]}] --> L{i+1}[{layers_viz[i+1]}]\n"
+            
+        st.markdown(f"```mermaid\n{mermaid_code}\n```")
+        st.info("Flow represents data movement through layers.")
 
 def render_nlp_suite(df):
     st.header("📝 NLP Suite")
@@ -3461,7 +3606,7 @@ def render_nlp_suite(df):
     text_col = st.selectbox("Select Text Column", text_cols)
     text_data = df[text_col].astype(str).dropna()
     
-    tab1, tab2, tab3, tab4 = st.tabs(["Sentiment", "Topic Modeling", "NER", "Word Cloud"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Sentiment", "Topic Modeling", "NER", "Word Cloud", "Summarization"])
     
     # --- Sentiment ---
     with tab1:
@@ -3527,6 +3672,19 @@ def render_nlp_suite(df):
                 st.image(wc.to_array())
         else:
             st.error("WordCloud not installed.")
+
+    # --- Summarization ---
+    with tab5:
+        st.subheader("Document Summarization (TextRank)")
+        st.caption("Extractive summarization of top text entries.")
+        
+        num_sentences = st.slider("Sentences per Summary", 1, 5, 2)
+        if st.button("Summarize Top 5 Docs"):
+            summarizer = SimpleSummarizer()
+            for i, text in enumerate(text_data.head(5)):
+                st.markdown(f"**Doc {i+1} Summary:**")
+                summary = summarizer.summarize(text, num_sentences)
+                st.info(summary)
 
 def render_bi_analytics(df):
     st.header("💼 Business Intelligence")
@@ -5071,15 +5229,8 @@ def render_automl_suite(df):
                     "Random Forest": RandomForestClassifier(n_estimators=100),
                     "Decision Tree": DecisionTreeClassifier()
                 }
-                # Optional Models
-                try: models["Gradient Boosting"] = GradientBoostingClassifier()
-                except: pass
-                
-                try:
-                     from xgboost import XGBClassifier
-                     models["XGBoost"] = XGBClassifier(eval_metric='logloss')
-                except ImportError:
-                     pass
+                if XGBOOST_AVAILABLE:
+                    models["XGBoost"] = XGBClassifier(use_label_encoder=False, eval_metric='logloss')
                 
                 for name, model in models.items():
                     try:
@@ -5099,15 +5250,8 @@ def render_automl_suite(df):
                     "Random Forest": RandomForestRegressor(n_estimators=100),
                     "Decision Tree": DecisionTreeRegressor()
                 }
-                # Optional Models
-                try: models["Gradient Boosting"] = GradientBoostingRegressor()
-                except: pass
-                
-                try:
-                     from xgboost import XGBRegressor
-                     models["XGBoost"] = XGBRegressor(verbosity=0)
-                except ImportError:
-                     pass
+                if XGBOOST_AVAILABLE:
+                    models["XGBoost"] = XGBRegressor()
                 
                 for name, model in models.items():
                     try:
@@ -5168,12 +5312,12 @@ def sidebar_processor():
         # New Categorized Navigation
         NAV_STRUCTURE = {
             "🔍 Data & Quality": [
-                ('Monitor', 'Monitor'), 
-                ('Data Quality', 'Data Quality'), 
-                ('Anomaly Detection', 'Anomalies'), 
-                ('Feature Eng', 'Features'),
-                ('Data Validation', 'Validation'),
-                ('Data Drift', 'Drift Detection')
+                ('Data Ingestion', 'Upload & Merge'),
+                ('Connectors', 'SQL & API Hub'),  # NEW v1.3
+                ('Validation', 'Data Validation Rules'),
+                ('Data Quality', 'Quality Assessment'), 
+                ('Drift Detection', 'Drift Detection'),
+                ('Monitor', 'Live Monitoring')
             ],
             "📊 Exploratory & Visuals": [
                 ('Smart Dashboard', 'Smart Dashboard'),
@@ -5275,6 +5419,59 @@ def sidebar_processor():
                 
                 st.session_state.data = df
                 st.success(f"✅ Active Data: {len(df):,} rows")
+
+def render_connectors(df):
+    """Data Engineering: Connect to Databases & APIs"""
+    st.markdown("""
+        <div class="phase-container">
+            <div class="phase-title">🛠️ Data Connector Hub</div>
+            <div class="phase-subtitle">Connect to SQL Databases and REST APIs</div>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    tab1, tab2 = st.tabs(["SQL Database", "REST API"])
+    
+    # --- SQL Tab ---
+    with tab1:
+        st.subheader("🔌 SQL Connection")
+        conn_str = st.text_input("Connection String (URI)", "sqlite:///example.db", help="Currently supports SQLite. For others, install SQLAlchemy.")
+        query = st.text_area("SQL Query", "SELECT * FROM my_table LIMIT 10")
+        
+        if st.button("Run Query"):
+            with st.spinner("Executing query..."):
+                connector = SQLConnector(conn_str)
+                res_df = connector.execute_query(query)
+                
+                if "Error" in res_df.columns:
+                    st.error(res_df.iloc[0,0])
+                elif not res_df.empty:
+                    st.success(f"Fetched {len(res_df)} rows")
+                    st.dataframe(res_df)
+                    if st.button("Use this Grid"):
+                        st.session_state.data = res_df
+                        st.rerun()
+                else:
+                    st.info("Query returned no results.")
+
+    # --- API Tab ---
+    with tab2:
+        st.subheader("🌐 REST API Fetcher")
+        url = st.text_input("API Endpoint URL", "https://api.coindesk.com/v1/bpi/currentprice.json")
+        
+        if st.button("Fetch API Data"):
+            with st.spinner("Calling API..."):
+                fetcher = APIFetcher()
+                api_df = fetcher.fetch_json(url)
+                
+                if api_df is not None and not api_df.empty:
+                    st.success(f"Fetched {len(api_df)} rows")
+                    st.dataframe(api_df)
+                    if st.button("Use this Data", key='use_api'):
+                        st.session_state.data = api_df
+                        st.rerun()
+                elif api_df is not None:
+                     st.warning("Empty response received")
+
 
 
                 with st.expander("🤖 Automated Data Pipeline (Informatica Layer)", expanded=True):
@@ -5398,6 +5595,7 @@ def main():
         st.session_state.analysis_history = []
 
     if phase == "Monitor": safe_render(render_monitor, df)
+    elif phase == "Connectors": safe_render(render_connectors, df) # NEW v1.3
     elif phase == "Explore": safe_render(render_explore, df)
     elif phase == "Cluster": safe_render(render_cluster, df)
     elif phase == "Time Series": safe_render(render_timeseries, df)
