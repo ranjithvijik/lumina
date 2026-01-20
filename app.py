@@ -23,16 +23,18 @@ import io
 import warnings
 import hashlib
 import pickle
+import uuid
 from typing import Dict, List, Optional, Tuple, Any
 warnings.filterwarnings('ignore')
 
 # Advanced Analytics Imports (Professional Phases)
 from sklearn.ensemble import IsolationForest, RandomForestClassifier, RandomForestRegressor, GradientBoostingClassifier, GradientBoostingRegressor, VotingClassifier, VotingRegressor
+from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 from sklearn.neighbors import LocalOutlierFactor, NearestNeighbors
 from sklearn.preprocessing import PolynomialFeatures, RobustScaler, MinMaxScaler, LabelEncoder, StandardScaler
 from sklearn.linear_model import LogisticRegression, LinearRegression
 from xgboost import XGBClassifier, XGBRegressor
-from sklearn.metrics import roc_auc_score, accuracy_score, r2_score, mean_squared_error, classification_report, confusion_matrix
+from sklearn.metrics import roc_auc_score, accuracy_score, r2_score, mean_squared_error, classification_report, confusion_matrix, f1_score
 from sklearn.model_selection import train_test_split, RandomizedSearchCV, cross_val_score
 from sklearn.inspection import partial_dependence
 import matplotlib.pyplot as plt
@@ -2727,6 +2729,121 @@ def render_smart_narrative(df):
     st.divider()
     st.caption("AI-Generated Insights based on Statistical Properties")
 
+
+# ============================================================================
+# ENTERPRISE AUTOMATION LAYER (v1.2)
+# ============================================================================
+
+class PipelineManager:
+    """
+    Manages the 'Informatica-like' automated ETL pipeline.
+    Stores steps, replays them, and handles recipe I/O.
+    """
+    def __init__(self):
+        if 'etl_pipeline' not in st.session_state:
+            st.session_state.etl_pipeline = []
+        
+    def add_step(self, step_type, params, description):
+        """Add a transformation step to the pipeline"""
+        step = {
+            'id': str(uuid.uuid4())[:8],
+            'type': step_type,
+            'params': params,
+            'description': description,
+            'timestamp': datetime.now().isoformat()
+        }
+        st.session_state.etl_pipeline.append(step)
+        
+    def get_pipeline(self):
+        return st.session_state.etl_pipeline
+    
+    def clear_pipeline(self):
+        st.session_state.etl_pipeline = []
+        
+    def remove_step(self, index):
+        if 0 <= index < len(st.session_state.etl_pipeline):
+            st.session_state.etl_pipeline.pop(index)
+
+    def apply_pipeline(self, df):
+        """Replay all steps on a dataframe"""
+        if df is None: return None
+        
+        df_processed = df.copy()
+        logs = []
+        
+        for step in st.session_state.etl_pipeline:
+            try:
+                s_type = step['type']
+                params = step['params']
+                
+                if s_type == 'drop_cols':
+                    cols = [c for c in params['cols'] if c in df_processed.columns]
+                    if cols: 
+                        df_processed = df_processed.drop(columns=cols)
+                        
+                elif s_type == 'rename_col':
+                    if params['old'] in df_processed.columns:
+                        df_processed = df_processed.rename(columns={params['old']: params['new']})
+                        
+                elif s_type == 'filter_numeric':
+                    col = params['col']
+                    op = params['op']
+                    val = params['val']
+                    if col in df_processed.columns:
+                        if op == '>': df_processed = df_processed[df_processed[col] > val]
+                        elif op == '<': df_processed = df_processed[df_processed[col] < val]
+                        elif op == '>=': df_processed = df_processed[df_processed[col] >= val]
+                        elif op == '<=': df_processed = df_processed[df_processed[col] <= val]
+                        elif op == '==': df_processed = df_processed[df_processed[col] == val]
+                        
+                elif s_type == 'impute':
+                    method = params['method']
+                    if method == 'drop': df_processed = df_processed.dropna()
+                    elif method == 'fill_0': df_processed = df_processed.fillna(0)
+                    elif method == 'fill_mean': 
+                        num = df_processed.select_dtypes(include=np.number).columns
+                        df_processed[num] = df_processed[num].fillna(df_processed[num].mean())
+                        
+                elif s_type == 'text_op':
+                    op = params['op']
+                    cols = params.get('cols', df_processed.select_dtypes(include='object').columns)
+                    for c in cols:
+                        if c in df_processed.columns:
+                            if op == 'lower': df_processed[c] = df_processed[c].astype(str).str.lower()
+                            elif op == 'upper': df_processed[c] = df_processed[c].astype(str).str.upper()
+                            elif op == 'strip': df_processed[c] = df_processed[c].astype(str).str.strip()
+                            
+                elif s_type == 'astype':
+                    col = params['col']
+                    dtype = params['dtype']
+                    if col in df_processed.columns:
+                        if dtype == 'int': df_processed[col] = pd.to_numeric(df_processed[col], errors='coerce').fillna(0).astype(int)
+                        elif dtype == 'float': df_processed[col] = pd.to_numeric(df_processed[col], errors='coerce')
+                        elif dtype == 'str': df_processed[col] = df_processed[col].astype(str)
+                        elif dtype == 'datetime': df_processed[col] = pd.to_datetime(df_processed[col], errors='coerce')
+
+                logs.append(f"✅ {step['description']}")
+                
+            except Exception as e:
+                logs.append(f"❌ Failed: {step['description']} ({str(e)})")
+                
+        return df_processed, logs
+
+    def export_recipe_json(self):
+        return json.dumps(st.session_state.etl_pipeline, indent=2)
+
+    def load_recipe_json(self, json_str):
+        try:
+            steps = json.loads(json_str)
+            st.session_state.etl_pipeline = steps
+            return True
+        except:
+            return False
+
+# Initializing Session State for Pipeline (Must be at module level or init)
+if 'etl_pipeline' not in st.session_state:
+    st.session_state.etl_pipeline = []
+
 # ============================================================================
 # 4. MAIN ROUTING
 # ============================================================================
@@ -4796,6 +4913,253 @@ def render_auto_eda(df):
 
 
 
+
+# ============================================================================
+# NEW ENHANCEMENT 7: SMART BI DASHBOARD
+# ============================================================================
+
+def render_smart_dashboard(df):
+    """Auto-Generated BI Dashboard (Tableau Logic)"""
+    st.markdown("""
+        <div class="phase-container">
+            <div class="phase-title">📊 Smart Dashboard</div>
+            <div class="phase-subtitle">Intelligent Auto-Generated Visualizations</div>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    if df is None:
+        st.info("Please upload data to begin.")
+        return
+        
+    num_cols, cat_cols, date_cols = get_column_types(df)
+    
+    # Global Filters
+    with st.expander("🔎 Dashboard Filters"):
+        if cat_cols:
+            filter_col = st.selectbox("Filter By", ["None"] + cat_cols)
+            if filter_col != "None":
+                filter_val = st.multiselect(f"Select {filter_col}", df[filter_col].unique(), default=df[filter_col].unique())
+                df = df[df[filter_col].isin(filter_val)]
+    
+    # Top Row: KPIs
+    st.markdown("### 📈 Key Performance Indicators")
+    kpi_cols = st.columns(4)
+    kpi_cols[0].metric("Total Records", f"{len(df):,}")
+    kpi_cols[1].metric("Columns", len(df.columns))
+    
+    if num_cols:
+        primary_kpi = st.selectbox("Select Primary Metric", num_cols, label_visibility='collapsed')
+        total_val = df[primary_kpi].sum()
+        avg_val = df[primary_kpi].mean()
+        kpi_cols[2].metric(f"Total {primary_kpi}", f"{total_val:,.0f}")
+        kpi_cols[3].metric(f"Avg {primary_kpi}", f"{avg_val:,.2f}")
+        
+    st.divider()
+    
+    # Intelligent Layout Grid
+    row1 = st.columns(2)
+    row2 = st.columns(2)
+    
+    # Chart 1: Time Series (if Date exists)
+    with row1[0]:
+        st.subheader("Time Trend")
+        if date_cols and num_cols:
+            dt_col = date_cols[0]
+            val_col = num_cols[0]
+            # Aggregate by month/day
+            df_agg = df.groupby(dt_col)[val_col].sum().reset_index()
+            fig = px.line(df_agg, x=dt_col, y=val_col, title=f"{val_col} over Time")
+            safe_plot(fig)
+        elif num_cols:
+             st.info("No Date column found. Showing index trend.")
+             fig = px.line(df.reset_index(), y=num_cols[0], title=f"{num_cols[0]} Trend")
+             safe_plot(fig)
+    
+    # Chart 2: Categorical Distribution
+    with row1[1]:
+        st.subheader("Category Breakdown")
+        if cat_cols and num_cols:
+            cat = cat_cols[0]
+            val = num_cols[0]
+            df_grp = df.groupby(cat)[val].sum().reset_index().sort_values(val, ascending=False).head(10)
+            fig = px.bar(df_grp, x=cat, y=val, title=f"Top 10 {cat} by {val}")
+            safe_plot(fig)
+        elif cat_cols:
+            cat = cat_cols[0]
+            fig = px.pie(df, names=cat, title=f"{cat} Distribution")
+            safe_plot(fig)
+        else:
+            st.info("No categorical columns found.")
+
+    # Chart 3: Correlation / Scatter
+    with row2[0]:
+        st.subheader("Relationship Analysis")
+        if len(num_cols) >= 2:
+            x_col = num_cols[0]
+            y_col = num_cols[1]
+            fig = px.scatter(df, x=x_col, y=y_col, title=f"{x_col} vs {y_col}", trendline="ols")
+            safe_plot(fig)
+        else:
+            st.info("Need at least 2 numeric columns for scatter plot.")
+
+    # Chart 4: Distribution / Box Plot
+    with row2[1]:
+        st.subheader("Value Distribution")
+        if num_cols:
+            val = num_cols[0]
+            if cat_cols:
+                fig = px.box(df, x=cat_cols[0], y=val, title=f"{val} Distribution by {cat_cols[0]}")
+            else:
+                fig = px.histogram(df, x=val, title=f"{val} Distribution")
+            safe_plot(fig)
+
+
+
+# ============================================================================
+# NEW ENHANCEMENT 8: AUTOML COMPETITION ("SAS Layer")
+# ============================================================================
+
+def render_automl_suite(df):
+    """Automated Machine Learning Competition"""
+    st.markdown("""
+        <div class="phase-container">
+            <div class="phase-title">🏎️ AutoML Competition</div>
+            <div class="phase-subtitle">Automated Model Selection & Leaderboard</div>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    if df is None:
+        st.info("Please upload data to begin.")
+        return
+        
+    num_cols, cat_cols, _ = get_column_types(df)
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        target = st.selectbox("Select Target Variable", df.columns)
+    
+    with col2:
+        test_size = st.slider("Test Set Size", 0.1, 0.5, 0.2)
+        
+    if st.button("🏁 Start Competition"):
+        with st.spinner("Training models..."):
+            
+            # Prepare Data
+            X = df.drop(columns=[target])
+            y = df[target]
+            
+            # Simple Encoding for MVP
+            X = pd.get_dummies(X, drop_first=True)
+            X = X.fillna(0) # Simple imputation
+            
+            # Determine Problem Type
+            is_classification = False
+            if y.dtype == 'object' or y.nunique() < 20:
+                is_classification = True
+                le = LabelEncoder()
+                y = le.fit_transform(y)
+            else:
+                y = pd.to_numeric(y, errors='coerce').fillna(y.mean())
+                
+            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=42)
+            
+            results = []
+            
+            if is_classification:
+                models = {
+                    "Logistic Regression": LogisticRegression(max_iter=1000),
+                    "Random Forest": RandomForestClassifier(n_estimators=100),
+                    "Decision Tree": DecisionTreeClassifier()
+                }
+                # Optional Models
+                try: models["Gradient Boosting"] = GradientBoostingClassifier()
+                except: pass
+                
+                try:
+                     from xgboost import XGBClassifier
+                     models["XGBoost"] = XGBClassifier(eval_metric='logloss')
+                except ImportError:
+                     pass
+                
+                for name, model in models.items():
+                    try:
+                        model.fit(X_train, y_train)
+                        preds = model.predict(X_test)
+                        acc = accuracy_score(y_test, preds)
+                        f1 = f1_score(y_test, preds, average='weighted')
+                        results.append({"Model": name, "Accuracy": acc, "F1 Score": f1, "Object": model})
+                    except Exception as e:
+                        st.error(f"Error training {name}: {str(e)}")
+                    
+                metrics_df = pd.DataFrame(results).sort_values("Accuracy", ascending=False)
+                
+            else:
+                models = {
+                    "Linear Regression": LinearRegression(),
+                    "Random Forest": RandomForestRegressor(n_estimators=100),
+                    "Decision Tree": DecisionTreeRegressor()
+                }
+                # Optional Models
+                try: models["Gradient Boosting"] = GradientBoostingRegressor()
+                except: pass
+                
+                try:
+                     from xgboost import XGBRegressor
+                     models["XGBoost"] = XGBRegressor(verbosity=0)
+                except ImportError:
+                     pass
+                
+                for name, model in models.items():
+                    try:
+                        model.fit(X_train, y_train)
+                        preds = model.predict(X_test)
+                        r2 = r2_score(y_test, preds)
+                        rmse = np.sqrt(mean_squared_error(y_test, preds))
+                        results.append({"Model": name, "R2 Score": r2, "RMSE": rmse, "Object": model})
+                    except Exception as e:
+                        st.error(f"Error training {name}: {str(e)}")
+                    
+                metrics_df = pd.DataFrame(results).sort_values("R2 Score", ascending=False)
+            
+            # Display Leaderboard
+            st.subheader("🏆 Model Leaderboard")
+            st.dataframe(metrics_df.drop(columns=["Object"]).style.highlight_max(axis=0))
+            
+            # Best Model Analysis
+            best_model_row = metrics_df.iloc[0]
+            best_model_name = best_model_row["Model"]
+            best_model = best_model_row["Object"]
+            
+            st.success(f"🥇 Winner: **{best_model_name}**")
+            
+            # Feature Importance
+            if hasattr(best_model, "feature_importances_"):
+                imp = pd.DataFrame({
+                    'Feature': X.columns,
+                    'Importance': best_model.feature_importances_
+                }).sort_values('Importance', ascending=False).head(10)
+                
+                fig = px.bar(imp, x='Importance', y='Feature', orientation='h', title=f"Feature/Importance ({best_model_name})")
+                safe_plot(fig)
+            elif hasattr(best_model, "coef_"):
+                imp = pd.DataFrame({
+                    'Feature': X.columns,
+                    'Coef': best_model.coef_[0] if is_classification and len(best_model.coef_.shape)>1 else best_model.coef_
+                }).sort_values('Coef', key=abs, ascending=False).head(10)
+                 
+                fig = px.bar(imp, x='Coef', y='Feature', orientation='h', title=f"Coefficients ({best_model_name})")
+                safe_plot(fig)
+                
+            # Save Logic (Reuse Model Registry if possible, simplified here)
+            if st.button("💾 Save Best Model to Registry"):
+                # Simplified save
+                import pickle
+                fname = f"{best_model_name.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d')}.pkl"
+                with open(fname, 'wb') as f:
+                    pickle.dump(best_model, f)
+                st.info(f"Model saved locally as {fname} (Integrate with Registry for full versioning)")
+
+
 def sidebar_processor():
     """Updated sidebar with all new phases"""
     with st.sidebar:
@@ -4812,6 +5176,7 @@ def sidebar_processor():
                 ('Data Drift', 'Drift Detection')
             ],
             "📊 Exploratory & Visuals": [
+                ('Smart Dashboard', 'Smart Dashboard'),
                 ('Automated EDA', 'Auto EDA'),
                 ('Explore', 'Explore'), 
                 ('Correlation', 'Correlations'), 
@@ -4821,6 +5186,7 @@ def sidebar_processor():
                 ('Network Graph', 'Network')
             ],
             "🤖 Predictive Modeling": [
+                ('AutoML Competition', 'AutoML (SAS Mode)'),
                 ('Predictive Model', 'Models'), 
                 ('Regression', 'Regression'), 
                 ('Model Registry', 'Model Registry'),
@@ -4910,73 +5276,91 @@ def sidebar_processor():
                 st.session_state.data = df
                 st.success(f"✅ Active Data: {len(df):,} rows")
 
-                with st.expander("🛠️ Robust ETL Pipeline", expanded=False):
-                    st.caption(f"Data Cleaning & Transformation")
-                    
-                    # 1. Column Management
-                    st.markdown("**1. Column Management**")
-                    all_cols = df.columns.tolist()
-                    drop_cols = st.multiselect("Drop Columns", all_cols)
-                    if drop_cols: 
-                        df = df.drop(columns=drop_cols)
-                    
-                    # 2. Text Standardization
-                    st.markdown("**2. Text Standardization**")
-                    text_ops = st.multiselect("Text Operations", 
-                                            ["Trim Whitespace", "To Lowercase", "To Uppercase", "Remove Special Chars"])
-                    
-                    if text_ops:
-                        obj_cols = df.select_dtypes(include=['object']).columns
-                        for col in obj_cols:
-                            if "Trim Whitespace" in text_ops:
-                                df[col] = df[col].astype(str).str.strip()
-                            if "To Lowercase" in text_ops:
-                                df[col] = df[col].astype(str).str.lower()
-                            if "To Uppercase" in text_ops:
-                                df[col] = df[col].astype(str).str.upper()
-                            if "Remove Special Chars" in text_ops:
-                                df[col] = df[col].astype(str).str.replace(r'[^A-Za-z0-9\s]', '', regex=True)
 
-                    # 3. Missing Value Handling
-                    st.markdown("**3. Missing Values**")
-                    if st.checkbox("Handle Missing Data"):
-                        miss_method = st.selectbox("Imputation Method", 
-                                                 ["Drop Rows", "Fill 0", "Fill Mean (Numeric) / Mode (Cat)", 
-                                                  "Forward Fill (Time Series)", "Backward Fill"])
-                        
-                        if miss_method == "Drop Rows":
-                            df = df.dropna()
-                        elif miss_method == "Fill 0":
-                            df = df.fillna(0)
-                        elif miss_method == "Fill Mean (Numeric) / Mode (Cat)":
-                            num = df.select_dtypes(include=np.number).columns
-                            cat = df.select_dtypes(exclude=np.number).columns
-                            if not num.empty: df[num] = df[num].fillna(df[num].mean())
-                            for c in cat:
-                                if not df[c].mode().empty:
-                                    df[c] = df[c].fillna(df[c].mode()[0])
-                                else:
-                                    df[c] = df[c].fillna("Unknown")
-                        elif miss_method == "Forward Fill (Time Series)":
-                            df = df.ffill()
-                        elif miss_method == "Backward Fill":
-                            df = df.bfill()
+                with st.expander("🤖 Automated Data Pipeline (Informatica Layer)", expanded=True):
+                    st.caption("Build, Save, and Replay ETL Recipes")
+                    
+                    pm = PipelineManager()
+                    
+                    # 1. Add New Step
+                    st.markdown("**Add Transformation Step**")
+                    step_type = st.selectbox("Operation Type", 
+                        ["Drop Columns", "Filter Rows", "Impute Missing", "Text Standardization", "Change Data Type", "Rename Column"])
+                    
+                    if step_type == "Drop Columns":
+                        cols = st.multiselect("Select Columns", df.columns)
+                        if st.button("Add Drop Step"):
+                            pm.add_step("drop_cols", {'cols': cols}, f"Drop columns: {', '.join(cols)}")
+                            st.rerun()
                             
-                    # 4. Data Type Enforcement
-                    st.markdown("**4. Type Standardization**")
-                    if st.checkbox("Enforce Numeric Types"):
-                        num_force_cols = st.multiselect("Select Columns to Force Numeric", df.columns)
-                        for c in num_force_cols:
-                            df[c] = pd.to_numeric(df[c], errors='coerce')
+                    elif step_type == "Filter Rows":
+                        col = st.selectbox("Column", df.select_dtypes(include=np.number).columns)
+                        op = st.selectbox("Operator", [">", "<", ">=", "<=", "=="])
+                        val = st.number_input("Value")
+                        if st.button("Add Filter Step"):
+                            pm.add_step("filter_numeric", {'col': col, 'op': op, 'val': val}, f"Filter {col} {op} {val}")
+                            st.rerun()
                             
-                    # 5. Deduplication
-                    st.markdown("**5. Deduplication**")
-                    if st.checkbox("Remove Duplicate Rows"):
-                        init_len = len(df)
-                        df = df.drop_duplicates()
-                        final_len = len(df)
-                        if init_len != final_len:
-                            st.info(f"Removed {init_len - final_len} duplicates")
+                    elif step_type == "Impute Missing":
+                        method = st.selectbox("Method", ["drop", "fill_0", "fill_mean"])
+                        if st.button("Add Impute Step"):
+                            pm.add_step("impute", {'method': method}, f"Impute missing: {method}")
+                            st.rerun()
+                            
+                    elif step_type == "Text Standardization":
+                        op = st.selectbox("Operation", ["lower", "upper", "strip"])
+                        if st.button("Add Text Step"):
+                            pm.add_step("text_op", {'op': op}, f"Text Op: {op}")
+                            st.rerun()
+                            
+                    elif step_type == "Change Data Type":
+                        col = st.selectbox("Col", df.columns)
+                        dtype = st.selectbox("To Type", ["int", "float", "str", "datetime"])
+                        if st.button("Add Type Step"):
+                            pm.add_step("astype", {'col': col, 'dtype': dtype}, f"Cast {col} to {dtype}")
+                            st.rerun()
+                            
+                    elif step_type == "Rename Column":
+                        old_col = st.selectbox("Original Name", df.columns)
+                        new_name = st.text_input("New Name")
+                        if st.button("Add Rename Step"):
+                            pm.add_step("rename_col", {'old': old_col, 'new': new_name}, f"Rename {old_col} -> {new_name}")
+                            st.rerun()
+
+                    # 2. View/Manage Pipeline
+                    st.divider()
+                    st.markdown(f"**Current Pipeline ({len(pm.get_pipeline())} steps)**")
+                    
+                    for i, step in enumerate(pm.get_pipeline()):
+                        col1, col2 = st.columns([0.8, 0.2])
+                        col1.text(f"{i+1}. {step['description']}")
+                        if col2.button("❌", key=f"del_{i}"):
+                            pm.remove_step(i)
+                            st.rerun()
+                            
+                    if st.button("Clear Pipeline"):
+                        pm.clear_pipeline()
+                        st.rerun()
+
+                    # 3. Apply Pipeline
+                    st.divider()
+                    if st.checkbox("✅ Apply Pipeline to Data", value=True):
+                        df, logs = pm.apply_pipeline(df)
+                        with st.expander("Execution Logs"):
+                            for log in logs:
+                                st.write(log)
+                                
+                    # 4. Recipe I/O
+                    st.divider()
+                    st.markdown("**Recipe Management**")
+                    recipe_json = pm.export_recipe_json()
+                    st.download_button("💾 Save Recipe", recipe_json, "pipeline_recipe.json", "application/json")
+                    
+                    uploaded_recipe = st.file_uploader("📂 Load Recipe", type=['json'])
+                    if uploaded_recipe:
+                        if pm.load_recipe_json(uploaded_recipe.getvalue().decode("utf-8")):
+                            st.success("Recipe Loaded!")
+                            st.rerun()
 
                 st.divider()
                 st.markdown("### 📥 Export Output")
@@ -5000,7 +5384,7 @@ def sidebar_processor():
                         st.error(f"Export Error: {e}")
                 
         st.divider()
-        st.caption("v1.1 | Enhanced Edition")
+        st.caption("v1.2 | Enterprise Automation")
         return phase, df
 
 # ============================================================================
@@ -5056,6 +5440,8 @@ def main():
     elif phase == 'Model Registry': safe_render(render_model_registry, df)
     elif phase == 'A/B Testing Pro': safe_render(render_ab_test_pro, df)
     elif phase == 'Causal Inference': safe_render(render_causal_inference, df)
+    elif phase == 'Smart Dashboard': safe_render(render_smart_dashboard, df)
+    elif phase == 'AutoML Competition': safe_render(render_automl_suite, df)
 
 if __name__ == "__main__":
     main()
