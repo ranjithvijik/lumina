@@ -494,11 +494,14 @@ def safe_dataframe(data, **kwargs):
     kwargs.pop('width', None)
     
     # NEW API: use width='stretch' instead of use_container_width=True
+    # NEW API: use width='stretch' instead of use_container_width=True
+    # Streamlit > 1.40 prefers width='stretch'
     try:
-        st.dataframe(df_disp, use_container_width=True, **kwargs)
+        # Optimistically try new API
+        st.dataframe(df_disp, width="stretch", **kwargs)
     except TypeError:
-        # Fallback if use_container_width is actually removed
-        st.dataframe(df_disp, **kwargs)
+        # Fallback for older Streamlit
+        st.dataframe(df_disp, use_container_width=True, **kwargs)
 
 def safe_plot(fig, height=None, **kwargs):
     if fig is None: return
@@ -509,11 +512,15 @@ def safe_plot(fig, height=None, **kwargs):
         fig.update_layout(height=height)
     
     # NEW API: use width='stretch' instead of use_container_width=True
+    # NEW API: use width='stretch' instead of use_container_width=True
     try:
-        st.plotly_chart(fig, use_container_width=True, **kwargs)
+        # Optimistically try new API
+        # Remove legacy arg from kwargs if present
+        kwargs.pop('use_container_width', None)
+        st.plotly_chart(fig, width="stretch", **kwargs)
     except TypeError:
-         # Fallback
-        st.plotly_chart(fig, **kwargs)
+        # Fallback for older Streamlit (which won't understand width='stretch' string or arg)
+        st.plotly_chart(fig, use_container_width=True, **kwargs)
 
 def get_column_types(df):
     numeric = df.select_dtypes(include=[np.number]).columns.tolist()
