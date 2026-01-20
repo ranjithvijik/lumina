@@ -739,11 +739,51 @@ def render_monitor(df):
     """, unsafe_allow_html=True)
     if df is None: return
     
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Rows", len(df))
-    col2.metric("Columns", len(df.columns))
-    col3.metric("Missing Cells", df.isna().sum().sum())
-    col4.metric("Duplicates", df.duplicated().sum())
+    tab1, tab2 = st.tabs(["Health Check", "Drift Monitor (MLOps)"])
+    
+    with tab1:
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Rows", len(df))
+        col2.metric("Columns", len(df.columns))
+        col3.metric("Missing Cells", df.isna().sum().sum())
+        col4.metric("Duplicates", df.duplicated().sum())
+    
+    with tab2:
+        st.subheader("Data Drift Detection")
+        st.caption("Compare current dataset statistics against a baseline.")
+        
+        # Simulated Baseline for Demo (or upload new)
+        if st.checkbox("Simulate Baseline (Training Data)"):
+            # Create a synthetic baseline slightly different
+            baseline = df.copy()
+            for c in df.select_dtypes(include=np.number).columns:
+                baseline[c] = baseline[c] * np.random.uniform(0.9, 1.1, len(df))
+            
+            st.info("Baseline loaded (Simulated)")
+            
+            # Comparison
+            comparison = []
+            num_cols = df.select_dtypes(include=np.number).columns
+            for c in num_cols:
+                curr_mean = df[c].mean()
+                base_mean = baseline[c].mean()
+                diff_pct = (curr_mean - base_mean) / base_mean * 100 if base_mean != 0 else 0
+                
+                status = "🟢 Stable"
+                if abs(diff_pct) > 5: status = "🟡 Warning" 
+                if abs(diff_pct) > 10: status = "🔴 DRIFT DETECTED"
+                
+                comparison.append({
+                    "Feature": c,
+                    "Current Mean": curr_mean,
+                    "Baseline Mean": base_mean,
+                    "Diff %": diff_pct,
+                    "Status": status
+                })
+            
+            st.dataframe(pd.DataFrame(comparison).style.applymap(lambda v: "color: red" if "DRIFT" in str(v) else None))
+        else:
+            st.info("Upload a second dataset or enable simulation to check for drift.")
     
     c1, c2 = st.columns([2, 1])
     with c1:
@@ -3486,9 +3526,37 @@ def render_deep_learning(df):
     X_train = scaler.fit_transform(X_train)
     X_test = scaler.transform(X_test)
     
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["AutoML", "NN Builder", "Hyperparameter Tuning", "Ensembling", "Architecture Viz"])
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["AutoML", "NN Builder", "Hyperparameter Tuning", "Ensembling", "Architecture Viz", "🚀 Deployment"])
     
     registry = ModelRegistry()
+
+    # --- Deployment ---
+    with tab6:
+        st.subheader("MLOps: Model Serving")
+        models = registry.get_models()
+        if not models:
+            st.info("No models in Registry. Train or Auto-Register a model first.")
+        else:
+            mid = st.selectbox("Select Model to Deploy", list(models.keys()), format_func=lambda x: f"{models[x]['name']} (Score: {models[x]['metrics'].get('score', 0):.2f})")
+            m = models[mid]
+            
+            st.write(f"**Model**: {m['name']}")
+            st.write(f"**Type**: {m['model_type']}")
+            st.json(m['metrics'])
+            
+            if st.button("Generate Deployment Bundle"):
+                # 1. Python Script
+                py_code = registry.generate_fastapi_code(mid)
+                
+                # 2. Pickle
+                pkl_data = registry.export_model(mid)
+                
+                b1, b2 = st.columns(2)
+                b1.download_button("📥 Download Model (.pkl)", pkl_data, "model.pkl")
+                b2.download_button("📥 Download Server (.py)", py_code, "fastapi_app.py")
+                
+                st.success("Download both files -> Run `pip install fastapi uvicorn` -> `python fastapi_app.py`")
+                st.code(py_code, language='python')
 
     # --- AutoML ---
     with tab1:
@@ -3862,9 +3930,44 @@ class ModelRegistry:
         """Export model as pickle bytes."""
         model_data = st.session_state.model_registry.get(model_id)
         if model_data:
-            return pickle.dumps(model_data)
+            return pickle.dumps(model_data['model'])
         return None
-    
+        
+    def generate_fastapi_code(self, model_id: str) -> str:
+        """Generate FastAPI server code for the model."""
+        m = st.session_state.model_registry.get(model_id)
+        if not m: return ""
+        
+        code = f"""
+import pickle
+import uvicorn
+from fastapi import FastAPI
+from pydantic import BaseModel
+import pandas as pd
+import numpy as np
+
+# Meta: {m['name']} (Type: {m['model_type']})
+# Features: {m['features']}
+
+app = FastAPI(title="{m['name']} API")
+
+class InputData(BaseModel):
+    {chr(10).join([f"{f}: float" for f in m['features']])}
+
+with open("model.pkl", "rb") as f:
+    model = pickle.load(f)
+
+@app.post("/predict")
+def predict(data: InputData):
+    df = pd.DataFrame([data.dict()])
+    prediction = model.predict(df)
+    return {{"prediction": float(prediction[0])}}
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+"""
+        return code
+
     def compare_models(self, model_ids: List[str]) -> pd.DataFrame:
         """Compare multiple models by metrics."""
         comparison = []
