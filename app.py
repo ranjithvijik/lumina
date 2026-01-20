@@ -7,32 +7,15 @@ import plotly.graph_objects as go
 import plotly.express as px
 import plotly.figure_factory as ff
 from plotly.subplots import make_subplots
-import seaborn as sns
-import matplotlib.pyplot as plt
-import io
-import time
-import base64
-import json
-import re
-import tempfile
-import os
-import requests
 from datetime import datetime
+import json
+import io
 import warnings
-from sklearn.cluster import KMeans, DBSCAN
-from sklearn.preprocessing import StandardScaler
-from sklearn.decomposition import PCA
-from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import classification_report, confusion_matrix, roc_curve, auc, accuracy_score
-import statsmodels.api as sm
-from statsmodels.formula.api import ols
-import statsmodels.formula.api as smf
-from statsmodels.stats.outliers_influence import variance_inflation_factor
 import hashlib
 import pickle
 import uuid
 import sqlite3
+import requests
 from typing import Dict, List, Optional, Tuple, Any
 warnings.filterwarnings('ignore')
 
@@ -80,15 +63,26 @@ class APIFetcher:
             st.error(f"Connection Failed: {e}")
             return None
 
-# Advanced Analytics Imports (Professional Phases)
-from sklearn.ensemble import IsolationForest, RandomForestClassifier, RandomForestRegressor, GradientBoostingClassifier, GradientBoostingRegressor, VotingClassifier, VotingRegressor
-from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
-from sklearn.neighbors import LocalOutlierFactor, NearestNeighbors
-from sklearn.preprocessing import PolynomialFeatures, RobustScaler, MinMaxScaler, LabelEncoder, StandardScaler
-from sklearn.linear_model import LogisticRegression, LinearRegression
-from sklearn.metrics import roc_auc_score, accuracy_score, r2_score, mean_squared_error, classification_report, confusion_matrix, f1_score
-from sklearn.model_selection import train_test_split, RandomizedSearchCV, cross_val_score
-from sklearn.inspection import partial_dependence
+# Advanced Analytics Imports (Lazy Loaded where possible)
+import matplotlib.pyplot as plt
+
+# Lazy Load Flags (Optimistic)
+XGBOOST_AVAILABLE = True
+SHAP_AVAILABLE = True
+LIFELINES_AVAILABLE = True
+TEXTBLOB_AVAILABLE = True
+SPACY_AVAILABLE = True
+WORDCLOUD_AVAILABLE = True
+TOPIC_MODELING_AVAILABLE = True
+MLP_AVAILABLE = True
+REPORTLAB_AVAILABLE = True
+NETWORKX_AVAILABLE = True
+AUTOML_AVAILABLE = True
+LIME_AVAILABLE = True
+PROPHET_AVAILABLE = True
+STATSMODELS_ADV_AVAILABLE = True
+OPTUNA_AVAILABLE = True
+LIFETIMES_AVAILABLE = True
 
 # --- OPTIONAL DEPENDENCY CHECKS ---
 
@@ -105,51 +99,7 @@ try:
 except ImportError:
     SHAP_AVAILABLE = False
 
-from statsmodels.tsa.seasonal import seasonal_decompose
-from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
-from scipy.cluster.hierarchy import dendrogram, linkage
-from scipy.spatial.distance import pdist
-from itertools import combinations
 
-# Post-Grad Stats Imports
-from statsmodels.multivariate.manova import MANOVA
-from statsmodels.stats.power import TTestIndPower, FTestAnovaPower
-import statsmodels.genmod.families as families
-import math
-
-# Survival Analysis (Optional)
-try:
-    from lifelines import KaplanMeierFitter
-    from lifelines.statistics import logrank_test
-    LIFELINES_AVAILABLE = True
-except ImportError:
-    LIFELINES_AVAILABLE = False
-
-# Advanced NLP Imports
-try:
-    from textblob import TextBlob
-    TEXTBLOB_AVAILABLE = True
-except ImportError:
-    TEXTBLOB_AVAILABLE = False
-
-try:
-    import spacy
-    SPACY_AVAILABLE = True
-except ImportError:
-    SPACY_AVAILABLE = False
-
-try:
-    from wordcloud import WordCloud
-    WORDCLOUD_AVAILABLE = True
-except ImportError:
-    WORDCLOUD_AVAILABLE = False
-
-try:
-    from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
-    from sklearn.decomposition import LatentDirichletAllocation, NMF
-    TOPIC_MODELING_AVAILABLE = True
-except ImportError:
-    TOPIC_MODELING_AVAILABLE = False
 
 class SimpleSummarizer:
     """Basic extractive summarizer using word frequency."""
@@ -251,40 +201,12 @@ try:
 except ImportError:
     LIFETIMES_AVAILABLE = False
 
-# --- v1.7 Integrations ---
-try:
-    import pyreadstat
-    SAS_AVAILABLE = True
-except ImportError:
-    SAS_AVAILABLE = False
 
-try:
-    import ollama
-    from langchain_community.llms import Ollama
-    from langchain.callbacks.manager import CallbackManager
-    from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
-    OLLAMA_AVAILABLE = True
-except ImportError:
-    OLLAMA_AVAILABLE = False
-
-try:
-    from langchain_openai import ChatOpenAI, AzureChatOpenAI, OpenAIEmbeddings
-    OPENAI_AVAILABLE = True
-except ImportError:
-    OPENAI_AVAILABLE = False
-
-try:
-    from langchain_community.vectorstores import FAISS
-    from langchain_community.document_loaders import PyPDFLoader, TextLoader
-    from langchain.text_splitter import RecursiveCharacterTextSplitter
-    from langchain_community.embeddings import OllamaEmbeddings
-    RAG_AVAILABLE = True
-except ImportError:
-    RAG_AVAILABLE = False
-    
-# Global Config
+# ============================================================================
+# 1. CONFIGURATION & THEME
+# ============================================================================
 st.set_page_config(
-    page_title="Lumina Analytics v1.7",
+    page_title="Lumina Analytics Suite",
     page_icon="🔮",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -562,20 +484,6 @@ def parse_uploaded_file(uploaded_file):
             return pd.read_stata(uploaded_file), "single"
         elif filename.endswith(('.pkl', '.pickle')):
             return pd.read_pickle(uploaded_file), "single"
-        elif filename.endswith('.sas7bdat'):
-            if SAS_AVAILABLE:
-                with tempfile.NamedTemporaryFile(delete=False, suffix='.sas7bdat') as tmp:
-                    tmp.write(uploaded_file.getbuffer())
-                    tmp_path = tmp.name
-                
-                try:
-                    df, meta = pyreadstat.read_sas7bdat(tmp_path)
-                    return df, "single"
-                finally:
-                    if os.path.exists(tmp_path):
-                        os.unlink(tmp_path)
-            else:
-                return "SAS library (pyreadstat) not installed.", "error"
         else:
             return f"Unsupported file extension: {filename}", "error"
             
@@ -617,32 +525,43 @@ def safe_dataframe(data, **kwargs):
     if data is None: return
     
     df_disp = data.copy()
-    # Convert objects to strings to prevent arrow errors
     for col in df_disp.select_dtypes(include=['object']):
         try:
             df_disp[col] = df_disp[col].astype(str)
         except: pass
     
+    # Remove deprecated/invalid params
+    kwargs.pop('use_container_width', None)
+    kwargs.pop('width', None)
+    
+    # NEW API: use width='stretch' instead of use_container_width=True
+    # NEW API: use width='stretch' instead of use_container_width=True
+    # Streamlit > 1.40 prefers width='stretch'
     try:
-        st.dataframe(df_disp, use_container_width=True, **kwargs)
+        # Optimistically try new API
+        st.dataframe(df_disp, width="stretch", **kwargs)
     except TypeError:
-        # Fallback for newer Streamlit versions or specific kwarg constraints
-        if 'use_container_width' in kwargs:
-            kwargs.pop('use_container_width')
-        st.dataframe(df_disp, **kwargs)
+        # Fallback for older Streamlit
+        st.dataframe(df_disp, use_container_width=True, **kwargs)
 
 def safe_plot(fig, height=None, **kwargs):
     if fig is None: return
+    # Remove potentially conflicting args if present
+    kwargs.pop('use_container_width', None)
+    
+    if height:
+        fig.update_layout(height=height)
+    
+    # NEW API: use width='stretch' instead of use_container_width=True
+    # NEW API: use width='stretch' instead of use_container_width=True
     try:
-        if height:
-            st.plotly_chart(fig, use_container_width=True, height=height, **kwargs)
-        else:
-            st.plotly_chart(fig, use_container_width=True, **kwargs)
+        # Optimistically try new API
+        # Remove legacy arg from kwargs if present
+        kwargs.pop('use_container_width', None)
+        st.plotly_chart(fig, width="stretch", **kwargs)
     except TypeError:
-         # Fallback
-        if 'use_container_width' in kwargs:
-            kwargs.pop('use_container_width')
-        st.plotly_chart(fig, **kwargs)
+        # Fallback for older Streamlit (which won't understand width='stretch' string or arg)
+        st.plotly_chart(fig, use_container_width=True, **kwargs)
 
 def get_column_types(df):
     numeric = df.select_dtypes(include=[np.number]).columns.tolist()
@@ -1947,6 +1866,15 @@ def render_predictive_modeling(df):
             <div class="phase-subtitle">Classification, Regression & Model Comparison</div>
         </div>
     """, unsafe_allow_html=True)
+
+    # Lazy Imports
+    from sklearn.preprocessing import LabelEncoder
+    from sklearn.model_selection import train_test_split
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.ensemble import RandomForestClassifier
+    from sklearn.metrics import accuracy_score, roc_auc_score
+    if XGBOOST_AVAILABLE:
+        from xgboost import XGBClassifier
     
     if df is None:
         st.info("Please upload a file to begin.")
@@ -1978,10 +1906,12 @@ def render_predictive_modeling(df):
 
                 # Encode Target if Categorical
                 if problem_type == "Classification": # Assuming problem_type is the task_type
+                    from sklearn.preprocessing import LabelEncoder
                     le = LabelEncoder()
                     y = le.fit_transform(y)
                     target_labels = le.classes_
                 
+                from sklearn.model_selection import train_test_split
                 test_size = 0.2 # Define test_size as it's used in train_test_split
                 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, 
                                                                    random_state=42, 
@@ -1990,11 +1920,17 @@ def render_predictive_modeling(df):
                 # --- MODEL COMPARISON ---
                 st.subheader("Model Comparison")
                 
+                from sklearn.linear_model import LogisticRegression
+                from sklearn.ensemble import RandomForestClassifier
+                if XGBOOST_AVAILABLE:
+                    from xgboost import XGBClassifier
+                
                 models = {
                     'Logistic Regression': LogisticRegression(max_iter=1000, random_state=42),
-                    'XGBoost': XGBClassifier(n_estimators=100, random_state=42, verbosity=0),
                     'Random Forest': RandomForestClassifier(n_estimators=100, random_state=42)
                 }
+                if XGBOOST_AVAILABLE:
+                    models['XGBoost'] = XGBClassifier(n_estimators=100, random_state=42, verbosity=0)
                 
                 results = {}
                 
@@ -2004,6 +1940,7 @@ def render_predictive_modeling(df):
                     y_pred = model.predict(X_test)
                     y_pred_proba = model.predict_proba(X_test)[:, 1] if hasattr(model, 'predict_proba') else y_pred
                     
+                    from sklearn.metrics import accuracy_score, roc_auc_score
                     accuracy = accuracy_score(y_test, y_pred)
                     auc = roc_auc_score(y_test, y_pred_proba) if len(np.unique(y)) == 2 else None
                     
@@ -2225,6 +2162,12 @@ def render_cluster(df):
             <div class="phase-subtitle">K-Means Segmentation</div>
         </div>
     """, unsafe_allow_html=True)
+    
+    # Lazy Imports
+    from sklearn.preprocessing import StandardScaler
+    from sklearn.cluster import KMeans
+    from sklearn.decomposition import PCA
+    
     if df is None: return
     num_cols, _, _ = get_column_types(df)
     
@@ -2241,6 +2184,10 @@ def render_cluster(df):
             st.error("Selected columns contain no valid data.")
             return
             
+        from sklearn.preprocessing import StandardScaler
+        from sklearn.cluster import KMeans
+        from sklearn.decomposition import PCA
+        
         scaler = StandardScaler()
         X_scaled = scaler.fit_transform(X)
         model = KMeans(n_clusters=k, n_init=10, random_state=42)
@@ -2718,10 +2665,7 @@ def render_pareto_analysis(df):
     if cat and metric:
         # Aggregation
         pareto_df = df.groupby(cat)[metric].sum().reset_index().sort_values(metric, ascending=False)
-        if pareto_df[metric].sum() > 0:
-            pareto_df['Cumulative Percentage'] = pareto_df[metric].cumsum() / pareto_df[metric].sum() * 100
-        else:
-            pareto_df['Cumulative Percentage'] = 0
+        pareto_df['Cumulative Percentage'] = pareto_df[metric].cumsum() / pareto_df[metric].sum() * 100
         
         # ABC Class
         def abc_classify(p):
@@ -2904,215 +2848,6 @@ def render_smart_narrative(df):
         if abs(skew) > 1:
             desc = "Heavily right-skewed (high values tail)" if skew > 1 else "Heavily left-skewed (low values tail)"
             st.write(f"• **{col}**: {desc}. Consider Log transformation.")
-
-
-# ============================================================================
-# NEW ENHANCEMENT 9: AI ASSISTANT (v1.7)
-# ============================================================================
-
-# Helper: Process RAG Documents
-def process_documents(uploaded_files, embedding_model):
-    """
-    Process uploaded PDFs/TXTs into a Vector Store (FAISS).
-    """
-    documents = []
-    
-    if not RAG_AVAILABLE:
-        return None, "RAG libraries missing."
-
-    with tempfile.TemporaryDirectory() as temp_dir:
-        for file in uploaded_files:
-            temp_filepath = os.path.join(temp_dir, file.name)
-            with open(temp_filepath, "wb") as f:
-                f.write(file.getbuffer())
-            
-            # Load
-            if file.name.endswith(".pdf"):
-                loader = PyPDFLoader(temp_filepath)
-                documents.extend(loader.load())
-            elif file.name.endswith(".txt"):
-                loader = TextLoader(temp_filepath)
-                documents.extend(loader.load())
-                
-    # Split
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-    splits = text_splitter.split_documents(documents)
-    
-    # Store
-    if splits:
-        vectorstore = FAISS.from_documents(documents=splits, embedding=embedding_model)
-        return vectorstore, f"Processed {len(splits)} chunks."
-    
-    return None, "No text text found."
-
-def render_ai_assistant(df):
-    st.markdown("""
-        <div class="phase-container">
-            <div class="phase-title">🤖 AI Assistant (Hybrid RAG)</div>
-            <div class="phase-subtitle">Talk to Data & Documents (Secure Knowledge Base)</div>
-        </div>
-    """, unsafe_allow_html=True)
-    
-    col_config, col_kb = st.columns([1, 1])
-    
-    # 1. Hybrid Provider Toggle
-    with col_config:
-        with st.expander("⚙️ AI Configuration", expanded=True):
-            provider_mode = st.radio("Select Infrastructure", ["🤖 Local (Privacy)", "☁️ Enterprise Cloud"])
-            
-            llm = None
-            embedding_model = None
-            
-            if provider_mode == "🤖 Local (Privacy)":
-                if not OLLAMA_AVAILABLE:
-                    st.error("Ollama library not found.")
-                else:
-                    model_name = st.text_input("Ollama Model", "llama3")
-                    base_url = st.text_input("Host", "http://localhost:11434")
-                    if st.button("Initialize Local AI"):
-                        llm = Ollama(model=model_name, base_url=base_url, temperature=0.1)
-                        # Embeddings
-                        embedding_model = OllamaEmbeddings(model="llama3", base_url=base_url)
-                        st.session_state.active_llm = llm
-                        st.session_state.active_embedding = embedding_model
-                        st.success("Connected to Local AI")
-                        
-            else: # Cloud Mode
-                if not OPENAI_AVAILABLE:
-                    st.error("LangChain OpenAI library not found. Install `langchain-openai`.")
-                else:
-                    cloud_provider = st.radio("Provider", ["Azure OpenAI (HIPAA)", "OpenAI Standard"])
-                    api_key = st.text_input("API Key", type="password")
-                    st.caption("🔒 API keys are not stored and are only used for this session.")
-                    
-                    if cloud_provider == "Azure OpenAI (HIPAA)":
-                        st.caption("✅ HIPAA Compliant (with BAA)")
-                        azure_endpoint = st.text_input("Endpoint", "https://your-resource.openai.azure.com/")
-                        deployment_name = st.text_input("Deployment Name")
-                        api_version = st.text_input("API Version", "2023-05-15")
-                        
-                        if st.button("Initialize Azure AI"):
-                            if api_key and azure_endpoint:
-                                llm = AzureChatOpenAI(
-                                    azure_deployment=deployment_name,
-                                    openai_api_version=api_version,
-                                    azure_endpoint=azure_endpoint,
-                                    api_key=api_key,
-                                    temperature=0
-                                )
-                                # Azure Embeddings (Assume same endpoint)
-                                embedding_model = OpenAIEmbeddings(
-                                    api_key=api_key, 
-                                    azure_endpoint=azure_endpoint,
-                                    deployment="text-embedding-ada-002", # Hardcoded for demo
-                                    openai_api_version=api_version,
-                                    openai_api_type="azure"
-                                )
-                                
-                                st.session_state.active_llm = llm
-                                st.session_state.active_embedding = embedding_model
-                                st.success("Connected to Azure AI")
-                            else:
-                                st.warning("Missing Credentials")
-                                
-                    else: # OpenAI Standard
-                        model = st.text_input("Model", "gpt-4o")
-                        if st.button("Initialize OpenAI"):
-                            if api_key:
-                                llm = ChatOpenAI(model=model, api_key=api_key, temperature=0)
-                                embedding_model = OpenAIEmbeddings(api_key=api_key)
-                                st.session_state.active_llm = llm
-                                st.session_state.active_embedding = embedding_model
-                                st.success("Connected to OpenAI")
-                            else:
-                                st.warning("Enter API Key")
-
-    # 2. Knowledge Base (RAG)
-    with col_kb:
-        with st.expander("📄 Knowledge Base (Documents)", expanded=True):
-            uploaded_docs = st.file_uploader("Upload Context (PDF/TXT)", accept_multiple_files=True)
-            if uploaded_docs:
-                if 'active_embedding' in st.session_state and st.session_state.active_embedding:
-                    if st.button("Process Documents"):
-                        with st.spinner("Ingesting Knowledge Base..."):
-                            vs, msg = process_documents(uploaded_docs, st.session_state.active_embedding)
-                            if vs:
-                                st.session_state.vector_store = vs
-                                st.success(msg)
-                            else:
-                                st.error(msg)
-                else:
-                    st.warning("Please Initialize AI First (to load Embeddings)")
-
-    st.divider()
-
-    # 3. Chat Interface
-    if "messages" not in st.session_state:
-        st.session_state.messages = [{"role": "assistant", "content": "Hello! I am Lumina. Connect an AI provider to start."}]
-
-    for msg in st.session_state.messages:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
-            
-    if prompt := st.chat_input("Ask about your data..."):
-        if 'active_llm' not in st.session_state or st.session_state.active_llm is None:
-            st.error("Please Initialize an AI Provider in the sidebar first.")
-        else:
-            st.session_state.messages.append({"role": "user", "content": prompt})
-            with st.chat_message("user"):
-                st.markdown(prompt)
-                
-            with st.chat_message("assistant"):
-                with st.spinner("Analyzing..."):
-                    try:
-                        # 1. RAG Retrieval (Knowledge Base)
-                        doc_context = ""
-                        if 'vector_store' in st.session_state and st.session_state.vector_store:
-                            docs = st.session_state.vector_store.similarity_search(prompt, k=3)
-                            doc_texts = "\n".join([d.page_content for d in docs])
-                            doc_context = f"\nDOCUMENT KNOWLEDGE:\n{doc_texts}\n"
-                        
-                        # 2. DataFrame Context
-                        df_context = ""
-                        if df is not None:
-                            buf = io.StringIO()
-                            df.info(buf=buf)
-                            df_context = f"""
-                            DATA SCHEME:
-                            {buf.getvalue()}
-                            STATS:
-                            {df.describe().to_string()}
-                            SAMPLE:
-                            {df.head(3).to_string()}
-                            """
-                        else:
-                            df_context = "No dataframe loaded."
-                            
-                        # 3. Hybrid Prompt
-                        full_prompt = f"""
-                        You are Lumina, an intelligent Data Analyst.
-                        
-                        {doc_context}
-                        
-                        {df_context}
-                        
-                        USER QUESTION: {prompt}
-                        
-                        INSTRUCTIONS:
-                        - If the answer is in the DOCUMENT KNOWLEDGE, cite it.
-                        - If the question is about the Data, use the DATA SCHEME/STATS.
-                        - Combine both sources if needed.
-                        """
-                        
-                        # Invoke
-                        response = st.session_state.active_llm.invoke(full_prompt)
-                        res_text = response.content if hasattr(response, 'content') else str(response)
-                        
-                        st.markdown(res_text)
-                        st.session_state.messages.append({"role": "assistant", "content": res_text})
-                        
-                    except Exception as e:
-                        st.error(f"AI Error: {e}")
 
 
 # ============================================================================
@@ -3543,6 +3278,13 @@ def render_explainability(df):
 def render_advanced_timeseries(df):
     st.header("📈 Advanced Time Series")
     
+    # Lazy Imports
+    import matplotlib.pyplot as plt
+    from prophet import Prophet
+    from statsmodels.tsa.arima.model import ARIMA
+    from statsmodels.tsa.seasonal import seasonal_decompose
+    from statsmodels.tsa.vector_ar.var_model import VAR
+    
     if df is None: return
     _, _, date_cols = get_column_types(df)
     num_cols = df.select_dtypes(include=[np.number]).columns.tolist()
@@ -3568,6 +3310,7 @@ def render_advanced_timeseries(df):
             
             prophet_df = ts_df.reset_index().rename(columns={date_col: 'ds', val_col: 'y'})
             
+            from prophet import Prophet
             m = Prophet()
             m.fit(prophet_df)
             future = m.make_future_dataframe(periods=periods)
@@ -3581,6 +3324,7 @@ def render_advanced_timeseries(df):
             safe_plot(fig)
             
             st.write("Forecast Components")
+            import matplotlib.pyplot as plt
             fig2 = m.plot_components(forecast)
             st.pyplot(fig2)
             plt.close(fig2)
@@ -3596,6 +3340,7 @@ def render_advanced_timeseries(df):
             q = st.number_input("q (MA)", 0, 5, 1)
             
             if st.button("Fit ARIMA"):
+                from statsmodels.tsa.arima.model import ARIMA
                 model = ARIMA(ts_df, order=(p,d,q))
                 model_fit = model.fit()
                 st.text(model_fit.summary())
@@ -3614,6 +3359,7 @@ def render_advanced_timeseries(df):
     with tab3:
         st.subheader("Anomaly Detection (STL Residuals)")
         try:
+            from statsmodels.tsa.seasonal import seasonal_decompose
             stl = seasonal_decompose(ts_df[val_col], model='additive', period=12)
             resid = stl.resid.dropna()
             threshold = resid.std() * 3
@@ -3635,6 +3381,10 @@ def render_advanced_timeseries(df):
         vars_select = st.multiselect("Select Variables for VAR", num_cols, default=num_cols[:2])
         if len(vars_select) > 1:
             var_data = df[vars_select].dropna()
+            # Already imported from statsmodels above? No, imports were scattered.
+            # Ideally imports should be at top of render_advanced_timeseries.
+            # But let's verify if VAR needs explicit import here if I move it to top.
+            # I will assume I am moving it to top of function.
             model = VAR(var_data)
             results = model.fit(2)
             st.text(results.summary())
@@ -3925,6 +3675,19 @@ def render_deep_learning(df):
 
 def render_nlp_suite(df):
     st.header("📝 NLP Suite")
+    
+    # Lazy Imports
+    if TEXTBLOB_AVAILABLE:
+        from textblob import TextBlob
+    if SPACY_AVAILABLE:
+        import spacy
+        from spacy.cli import download
+    if WORDCLOUD_AVAILABLE:
+        from wordcloud import WordCloud
+    if TOPIC_MODELING_AVAILABLE:
+        from sklearn.feature_extraction.text import CountVectorizer
+        from sklearn.decomposition import LatentDirichletAllocation
+
     if df is None: return
     
     text_cols = df.select_dtypes(include=['object']).columns.tolist()
@@ -3942,6 +3705,7 @@ def render_nlp_suite(df):
         st.subheader("Text Column Analysis (Sentiment)")
         if TEXTBLOB_AVAILABLE:
             if st.button("Analyze Sentiment"):
+                from textblob import TextBlob
                 polarities = [TextBlob(text).sentiment.polarity for text in text_data]
                 df['polarity'] = polarities
                 fig = px.histogram(x=polarities, title="Sentiment Polarity Distribution")
@@ -3956,6 +3720,9 @@ def render_nlp_suite(df):
         st.subheader("Topic Modeling (LDA)")
         n_topics = st.slider("Number of Topics", 2, 10, 3)
         if st.button("Run LDA"):
+            from sklearn.feature_extraction.text import CountVectorizer
+            from sklearn.decomposition import LatentDirichletAllocation
+            
             cv = CountVectorizer(max_df=0.95, min_df=2, stop_words='english')
             dtm = cv.fit_transform(text_data)
             lda = LatentDirichletAllocation(n_components=n_topics, random_state=42)
@@ -3971,6 +3738,7 @@ def render_nlp_suite(df):
         st.subheader("Named Entity Recognition")
         if SPACY_AVAILABLE:
             if st.button("Extract Entities"):
+                import spacy
                 try:
                     nlp = spacy.load("en_core_web_sm")
                 except OSError:
@@ -3996,6 +3764,7 @@ def render_nlp_suite(df):
         st.subheader("Word Cloud Generation")
         if WORDCLOUD_AVAILABLE:
             if st.button("Generate Cloud"):
+                from wordcloud import WordCloud
                 text = " ".join(text_data)
                 wc = WordCloud(width=800, height=400, background_color='white').generate(text)
                 st.image(wc.to_array())
@@ -5705,96 +5474,257 @@ def render_automl_suite(df):
 
 
 def sidebar_processor():
-    """
-    Manages the sidebar navigation and simple global inputs.
-    Returns: (app_mode, df)
-    """
+    """Updated sidebar with all new phases"""
     with st.sidebar:
-        st.markdown("## 🧭 Navigation")
-        # UPDATED: Aligns precisely with main() routing
-        app_mode = st.radio("Go to:", [
-            "Home", 
-            "Connectors",
-            "Monitor",
-            "Explore",
-            "Deep Learning",
-            "NLP Suite",
-            "Timeseries Advanced",
-            "Statistics Advanced",
-            "BI Analytics",
-            "Smart Narrative",
-            "PDF Report",
-            "🤖 AI Assistant"
-        ])
+        st.markdown("## 🔮 Lumina Analytics Suite")
         
-        st.write("---")
+        # New Categorized Navigation
+        NAV_STRUCTURE = {
+            "🔍 Data & Quality": [
+                ('Data Ingestion', 'Upload & Merge'),
+                ('Connectors', 'SQL & API Hub'),  # NEW v1.3
+                ('Validation', 'Data Validation Rules'),
+                ('Data Quality', 'Quality Assessment'), 
+                ('Drift Detection', 'Drift Detection'),
+                ('Monitor', 'Live Monitoring')
+            ],
+            "📊 Exploratory & Visuals": [
+                ('Smart Dashboard', 'Smart Dashboard'),
+                ('Automated EDA', 'Auto EDA'),
+                ('Explore', 'Explore'), 
+                ('Correlation', 'Correlations'), 
+                ('Cluster', 'Cluster'),
+                ('3D Scatter', '3D Scatter'), 
+                ('Sankey Diagram', 'Sankey'), 
+                ('Network Graph', 'Network')
+            ],
+            "🤖 Predictive Modeling": [
+                ('AutoML Competition', 'AutoML (SAS Mode)'),
+                ('Predictive Model', 'Models'), 
+                ('Regression', 'Regression'), 
+                ('Model Registry', 'Model Registry'),
+                ('Deep Learning', 'Deep Learning'),
+                ('Explainability', 'Explainability'), 
+                ('NLP Suite', 'NLP Suite')
+            ],
+            "📉 Statistical Analysis": [
+                ('Statistical Test', 'Statistical'), 
+                ('Statistics Advanced', 'Statistics+'),
+                ('A/B Test Pro', 'A/B Testing Pro'),
+                ('Causal Inference', 'Causal Inference'),
+                ('GLM', 'GLM'), 
+                ('Multivariate', 'Multivariate'), 
+                ('Survival', 'Survival'), 
+                ('Power Analysis', 'Power')
+            ],
+            "📈 Time Series": [
+                ('Time Series', 'Time Series'), 
+                ('Timeseries Advanced', 'Time Series+')
+            ],
+            "💼 Business Intelligence": [
+                ('Business Analytics', 'Business'), 
+                ('BI Analytics', 'BI Analytics'),
+                ('Market Basket', 'Market Basket'), 
+                ('Pareto Analysis', 'Pareto (80/20)'), 
+                ('Impact', 'Impact')
+            ],
+            "📝 Reporting": [
+                ('Report', 'Report'), 
+                ('PDF Report', 'PDF Report'), 
+                ('Smart Narrative', 'Smart Insights')
+            ]
+        }
         
-        # 2. File Uploader
-        st.markdown("### 📤 Data Ingestion")
+        # 1. Select Category
+        category = st.radio("Navigation", list(NAV_STRUCTURE.keys()))
+        st.divider()
+        
+        # 2. Select Phase within Category
+        # Create mapping for display
+        phase_options = NAV_STRUCTURE[category]
+        phase_key = st.radio(
+            "Module",
+            phase_options,
+            format_func=lambda x: f"{x[1]}"
+        )[0] # Get the Key (0 index)
+        
+        phase = phase_key # Pass to return
+
+        
+        st.divider()
+        st.markdown("### 📂 Data Ingestion")
         
         uploaded_files = st.file_uploader(
             "Upload File(s)", 
-            type=['csv', 'xlsx', 'xls', 'txt', 'tsv', 'json', 'parquet', 'xml', 'dta', 'pkl', 'pickle', 'sas7bdat'],
+            type=['csv', 'xlsx', 'xls', 'txt', 'tsv', 'json', 'parquet', 'xml', 'dta', 'pkl', 'pickle'],
             accept_multiple_files=True,
             help="Upload multiple files to merge them."
         )
         
         df = None
         
-        # 3. Process Files
         if uploaded_files:
-            try:
-                # v1.1: Merge Logic
-                if len(uploaded_files) > 1:
-                    dfs = []
-                    for f in uploaded_files:
-                        d, t = parse_uploaded_file(f)
-                        if t != 'error': dfs.append(d)
-                    
-                    if len(dfs) > 1:
-                         # Default to intelligent merge (concat or merge)
-                         try:
-                             df = pd.concat(dfs, ignore_index=True)
-                             st.success(f"Merged {len(dfs)} files into one dataset ({len(df)} rows).")
-                         except:
-                             st.warning("Schemas differ. Using first file only.")
-                             df = dfs[0]
-                    else:
-                        df = dfs[0] if dfs else None
+            # Multi-file Logic
+            raw_dfs = {}
+            for f in uploaded_files:
+                d, s = parse_uploaded_file(f)
+                if s == 'single': raw_dfs[f.name] = d
+                elif s == 'multi': 
+                    for k, v in d.items(): raw_dfs[f"{f.name} - {k}"] = v
+            
+            if len(raw_dfs) > 0:
+                # Merge or Select
+                if len(raw_dfs) > 1:
+                    df = merge_datasets(raw_dfs)
                 else:
-                    df, ftype = parse_uploaded_file(uploaded_files[0])
-                    if ftype == 'error':
-                        st.error(df)
-                        return "Home", None
-
-                # v1.4: Update Session State
+                    df = list(raw_dfs.values())[0]
+            
+            if df is not None:
+                # smart_date_converter
+                df = smart_date_converter(df)
+                
+                # Enforce string column names to prevent Streamlit/Plotly type errors (e.g. 1960 int vs str)
+                df.columns = df.columns.astype(str)
+                
                 st.session_state.data = df
-                
-            except Exception as e:
-                st.error(f"Error processing files: {e}")
-                
+                st.success(f"✅ Active Data: {len(df):,} rows")
+
         # 4. Use Session Data
         if 'data' in st.session_state:
+            # v1.4: Update Session State (Redundant but safe)
             df = st.session_state.data
-            st.sidebar.success(f"Loaded: {len(df):,} rows")
-            
-            # v1.2: Pipeline Manager Hook
-            pm = PipelineManager()
-            if pm.get_pipeline():
-                # Pipeline UI Logic (Simplified for repair compatibility)
-                if st.sidebar.button("Pipeline Info"):
-                    st.sidebar.info(f"Active Pipeline steps: {len(pm.get_pipeline())}")
+            st.success(f"Loaded: {len(df):,} rows")
 
-                # Output export
-                st.sidebar.divider()
-                if st.sidebar.button("Export Data"):
-                    buffer = io.BytesIO()
-                    df.to_csv(buffer, index=False)
-                    st.sidebar.download_button("Download CSV", buffer.getvalue(), "lumina_data.csv")
+
+
+            with st.expander("🤖 Automated Data Pipeline (Informatica Layer)", expanded=True):
+                st.caption("Build, Save, and Replay ETL Recipes")
                 
-        st.sidebar.divider()
-        st.sidebar.caption("v2.0 | Enterprise Automation")
-        return app_mode, df if 'data' in st.session_state else None
+                pm = PipelineManager()
+                
+                # 1. Add New Step
+                st.markdown("**Add Transformation Step**")
+                step_type = st.selectbox("Operation Type", 
+                    ["Drop Columns", "Filter Rows", "Impute Missing", "Text Standardization", "Change Data Type", "Rename Column", "Pivot (Reshape)", "Melt (Unpivot)"])
+                
+                if step_type == "Drop Columns":
+                    cols = st.multiselect("Select Columns", df.columns)
+                    if st.button("Add Drop Step"):
+                        pm.add_step("drop_cols", {'cols': cols}, f"Drop columns: {', '.join(cols)}")
+                        st.rerun()
+                        
+                elif step_type == "Filter Rows":
+                    col = st.selectbox("Column", df.select_dtypes(include=np.number).columns)
+                    op = st.selectbox("Operator", [">", "<", ">=", "<=", "=="])
+                    val = st.number_input("Value")
+                    if st.button("Add Filter Step"):
+                        pm.add_step("filter_numeric", {'col': col, 'op': op, 'val': val}, f"Filter {col} {op} {val}")
+                        st.rerun()
+                        
+                elif step_type == "Impute Missing":
+                    method = st.selectbox("Method", ["drop", "fill_0", "fill_mean"])
+                    if st.button("Add Impute Step"):
+                        pm.add_step("impute", {'method': method}, f"Impute missing: {method}")
+                        st.rerun()
+                        
+                elif step_type == "Text Standardization":
+                    op = st.selectbox("Operation", ["lower", "upper", "strip"])
+                    if st.button("Add Text Step"):
+                        pm.add_step("text_op", {'op': op}, f"Text Op: {op}")
+                        st.rerun()
+                        
+                elif step_type == "Change Data Type":
+                    col = st.selectbox("Col", df.columns)
+                    dtype = st.selectbox("To Type", ["int", "float", "str", "datetime"])
+                    if st.button("Add Type Step"):
+                        pm.add_step("astype", {'col': col, 'dtype': dtype}, f"Cast {col} to {dtype}")
+                        st.rerun()
+                        
+                elif step_type == "Rename Column":
+                    old_col = st.selectbox("Original Name", df.columns)
+                    new_name = st.text_input("New Name")
+                    if st.button("Add Rename Step"):
+                        pm.add_step("rename_col", {'old': old_col, 'new': new_name}, f"Rename {old_col} -> {new_name}")
+                        st.rerun()
+                        
+                elif step_type == "Pivot (Reshape)":
+                    idx = st.selectbox("Index (Rows)", df.columns, key='piv_idx')
+                    cols = st.selectbox("Columns (New Headers)", df.columns, key='piv_col')
+                    vals = st.selectbox("Values", df.select_dtypes(include=np.number).columns, key='piv_val')
+                    if st.button("Add Pivot Step"):
+                        pm.add_step("pivot", {'index': idx, 'columns': cols, 'values': vals}, f"Pivot: Index={idx}, Cols={cols}")
+                        st.rerun()
+
+                elif step_type == "Melt (Unpivot)":
+                    id_vars = st.multiselect("ID Variables (Keepers)", df.columns, key='melt_id')
+                    val_vars = st.multiselect("Value Variables (Unpivot)", [c for c in df.columns if c not in id_vars], key='melt_val')
+                    if st.button("Add Melt Step"):
+                        pm.add_step("melt", {'id_vars': id_vars, 'value_vars': val_vars}, f"Melt: IDs={len(id_vars)} cols")
+                        st.rerun()
+
+                # 2. View/Manage Pipeline
+                st.divider()
+                st.markdown(f"**Current Pipeline ({len(pm.get_pipeline())} steps)**")
+                
+                for i, step in enumerate(pm.get_pipeline()):
+                    col1, col2 = st.columns([0.8, 0.2])
+                    col1.text(f"{i+1}. {step['description']}")
+                    if col2.button("❌", key=f"del_{i}"):
+                        pm.remove_step(i)
+                        st.rerun()
+                        
+                if st.button("Clear Pipeline"):
+                    pm.clear_pipeline()
+                    st.rerun()
+
+                # 3. Apply Pipeline
+                st.divider()
+                if st.checkbox("✅ Apply Pipeline to Data", value=True):
+                    df, logs = pm.apply_pipeline(df)
+                    with st.expander("Execution Logs"):
+                        for log in logs:
+                            st.write(log)
+                            
+                # 4. Recipe I/O
+                st.divider()
+                st.markdown("**Recipe Management**")
+                recipe_json = pm.export_recipe_json()
+                st.download_button("💾 Save Recipe", recipe_json, "pipeline_recipe.json", "application/json")
+                
+                uploaded_recipe = st.file_uploader("📂 Load Recipe", type=['json'])
+                if uploaded_recipe:
+                    if pm.load_recipe_json(uploaded_recipe.getvalue().decode("utf-8")):
+                        st.success("Recipe Loaded!")
+                        st.rerun()
+
+            st.divider()
+            st.markdown("### 📥 Export Output")
+            if st.button("Prepare Excel Download"):
+                try:
+                    buffer = io.BytesIO()
+                    with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+                        df.to_excel(writer, sheet_name='Cleaned_Data', index=False)
+                        df.describe().to_excel(writer, sheet_name='Summary_Statistics')
+                        num_cols = df.select_dtypes(include=[np.number]).columns
+                        if len(num_cols) > 1:
+                            df[num_cols].corr().to_excel(writer, sheet_name='Correlations')
+                    
+                    st.download_button(
+                        label="Download Excel Workbook",
+                        data=buffer.getvalue(),
+                        file_name=f"Lumina_Output_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                        mime="application/vnd.ms-excel"
+                    )
+                except Exception as e:
+                    st.error(f"Export Error: {e}")
+                
+        st.divider()
+        st.caption("v1.2 | Enterprise Automation")
+        return phase, df
+
+# ============================================================================
+# UPDATE MAIN() FUNCTION TO ROUTE NEW PHASES
+# ============================================================================
 
 def render_connectors(df):
     """Data Engineering: Connect to Databases & APIs"""
@@ -5810,7 +5740,6 @@ def render_connectors(df):
     # --- SQL Tab ---
     with tab1:
         st.subheader("🔌 SQL Connection")
-        st.warning("⚠️ Only run queries from trusted sources. SQL injection is possible.")
         conn_str = st.text_input("Connection String (URI)", "sqlite:///example.db", help="Currently supports SQLite. For others, install SQLAlchemy.")
         query = st.text_area("SQL Query", "SELECT * FROM my_table LIMIT 10")
         
@@ -5821,14 +5750,14 @@ def render_connectors(df):
                 
                 if "Error" in res_df.columns:
                     st.error(res_df.iloc[0,0])
-                elif not res_df:  # Empty
-                    st.info("Query returned no results.")
-                else:
+                elif not res_df.empty:
                     st.success(f"Fetched {len(res_df)} rows")
                     st.dataframe(res_df)
                     if st.button("Use this Grid"):
                         st.session_state.data = res_df
                         st.rerun()
+                else:
+                    st.info("Query returned no results.")
 
     # --- API Tab ---
     with tab2:
@@ -5848,10 +5777,6 @@ def render_connectors(df):
                         st.rerun()
                 elif api_df is not None:
                      st.warning("Empty response received")
-
-# ============================================================================
-# UPDATE MAIN() FUNCTION TO ROUTE NEW PHASES
-# ============================================================================
 
 def main():
     phase, df = sidebar_processor()
@@ -5895,11 +5820,6 @@ def main():
     elif phase == 'Deep Learning': safe_render(render_deep_learning, df)
     elif phase == 'NLP Suite': safe_render(render_nlp_suite, df)
     elif phase == 'BI Analytics': safe_render(render_bi_analytics, df)
-    
-    elif phase == 'Smart Narrative': safe_render(render_smart_narrative, df)
-    
-    # v1.7 Integration
-    elif phase == '🤖 AI Assistant': safe_render(render_ai_assistant, df)
     
     # New Modules v1.1
     elif phase == 'Auto EDA': safe_render(render_auto_eda, df)
