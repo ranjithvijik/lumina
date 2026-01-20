@@ -8,7 +8,7 @@ import plotly.express as px
 import plotly.figure_factory as ff
 from plotly.subplots import make_subplots
 from datetime import datetime
-from sklearn.cluster import KMeans
+from sklearn.cluster import KMeans, DBSCAN
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
@@ -21,11 +21,14 @@ from statsmodels.stats.outliers_influence import variance_inflation_factor
 import json
 import io
 import warnings
+import hashlib
+import pickle
+from typing import Dict, List, Optional, Tuple, Any
 warnings.filterwarnings('ignore')
 
 # Advanced Analytics Imports (Professional Phases)
 from sklearn.ensemble import IsolationForest, RandomForestClassifier, RandomForestRegressor, GradientBoostingClassifier, GradientBoostingRegressor, VotingClassifier, VotingRegressor
-from sklearn.neighbors import LocalOutlierFactor
+from sklearn.neighbors import LocalOutlierFactor, NearestNeighbors
 from sklearn.preprocessing import PolynomialFeatures, RobustScaler, MinMaxScaler, LabelEncoder, StandardScaler
 from sklearn.linear_model import LogisticRegression, LinearRegression
 from xgboost import XGBClassifier, XGBRegressor
@@ -39,12 +42,14 @@ try:
     SHAP_AVAILABLE = True
 except ImportError:
     SHAP_AVAILABLE = False
+
 from statsmodels.tsa.seasonal import seasonal_decompose
 from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
 import seaborn as sns
 from scipy.cluster.hierarchy import dendrogram, linkage
 from scipy.spatial.distance import pdist
 from itertools import combinations
+
 # Post-Grad Stats Imports
 from statsmodels.multivariate.manova import MANOVA
 from statsmodels.stats.power import TTestIndPower, FTestAnovaPower
@@ -58,7 +63,6 @@ try:
     LIFELINES_AVAILABLE = True
 except ImportError:
     LIFELINES_AVAILABLE = False
-
 
 # Advanced NLP Imports
 try:
@@ -125,11 +129,13 @@ try:
 except ImportError:
     XGBOOST_AVAILABLE = False
 
-try:
-    import shap
-    SHAP_AVAILABLE = True
-except ImportError:
-    SHAP_AVAILABLE = False
+# Note: SHAP check duplicated in user snippet, standardizing here
+if 'SHAP_AVAILABLE' not in globals():
+    try:
+        import shap
+        SHAP_AVAILABLE = True
+    except ImportError:
+        SHAP_AVAILABLE = False
 
 try:
     import lime
@@ -148,6 +154,23 @@ try:
     from statsmodels.tsa.arima.model import ARIMA
     from statsmodels.tsa.vector_ar.var_model import VAR
     from statsmodels.stats.multicomp import pairwise_tukeyhsd
+    from statsmodels.stats.anova import AnovaRM
+    STATSMODELS_ADV_AVAILABLE = True
+except ImportError:
+    STATSMODELS_ADV_AVAILABLE = False
+
+try:
+    import optuna
+    OPTUNA_AVAILABLE = True
+except ImportError:
+    OPTUNA_AVAILABLE = False
+
+try:
+    from lifetimes import BetaGeoFitter, GammaGammaFitter
+    from lifetimes.utils import summary_data_from_transaction_data
+    LIFETIMES_AVAILABLE = True
+except ImportError:
+    LIFETIMES_AVAILABLE = False
     from statsmodels.stats.anova import AnovaRM
     STATSMODELS_ADV_AVAILABLE = True
 except ImportError:
@@ -3515,6 +3538,1264 @@ def render_bi_analytics(df):
 
 
 
+
+# ============================================================================
+# NEW ENHANCEMENT 1: MODEL REGISTRY & VERSIONING
+# ============================================================================
+
+class ModelRegistry:
+    """Track, compare, and export trained models."""
+    
+    def __init__(self):
+        if 'model_registry' not in st.session_state:
+            st.session_state.model_registry = {}
+    
+    def register_model(self, name: str, model: Any, metrics: Dict, features: List[str], 
+                       target: str, model_type: str):
+        """Register a trained model with metadata."""
+        model_id = hashlib.md5(f"{name}_{datetime.now().isoformat()}".encode()).hexdigest()[:8]
+        
+        st.session_state.model_registry[model_id] = {
+            'name': name,
+            'model': model,
+            'metrics': metrics,
+            'features': features,
+            'target': target,
+            'model_type': model_type,
+            'created_at': datetime.now(),
+            'version': len([m for m in st.session_state.model_registry.values() if m['name'] == name]) + 1
+        }
+        return model_id
+    
+    def get_models(self) -> Dict:
+        return st.session_state.model_registry
+    
+    def export_model(self, model_id: str) -> bytes:
+        """Export model as pickle bytes."""
+        model_data = st.session_state.model_registry.get(model_id)
+        if model_data:
+            return pickle.dumps(model_data)
+        return None
+    
+    def compare_models(self, model_ids: List[str]) -> pd.DataFrame:
+        """Compare multiple models by metrics."""
+        comparison = []
+        for mid in model_ids:
+            if mid in st.session_state.model_registry:
+                m = st.session_state.model_registry[mid]
+                row = {'Model ID': mid, 'Name': m['name'], 'Version': m['version'], 
+                       'Type': m['model_type'], 'Created': m['created_at'].strftime('%Y-%m-%d %H:%M')}
+                row.update(m['metrics'])
+                comparison.append(row)
+        return pd.DataFrame(comparison)
+
+def render_model_registry(df):
+    """Model Registry UI"""
+    st.markdown("""
+        <div class="phase-container">
+            <div class="phase-title">📦 Model Registry</div>
+            <div class="phase-subtitle">Track, Compare & Export Trained Models</div>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    registry = ModelRegistry()
+    models = registry.get_models()
+    
+    if not models:
+        st.info("No models registered yet. Train models in the Predictive Modeling or Deep Learning phases.")
+        
+        # Quick Train Demo
+        if df is not None:
+            st.subheader("Quick Model Training")
+            num_cols, cat_cols, _ = get_column_types(df)
+            
+            if len(num_cols) >= 2:
+                target = st.selectbox("Target Variable", num_cols)
+                features = st.multiselect("Features", [c for c in num_cols if c != target])
+                
+                if features and st.button("Train & Register Quick Model"):
+                    X, y = clean_xy(df, target, features)
+                    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
+                    
+                    model = RandomForestRegressor(n_estimators=50, random_state=42)
+                    model.fit(X_train, y_train)
+                    
+                    r2 = model.score(X_test, y_test)
+                    rmse = np.sqrt(mean_squared_error(y_test, model.predict(X_test)))
+                    
+                    model_id = registry.register_model(
+                        name="QuickRF",
+                        model=model,
+                        metrics={'R²': round(r2, 4), 'RMSE': round(rmse, 4)},
+                        features=features,
+                        target=target,
+                        model_type='RandomForest Regressor'
+                    )
+                    st.success(f"✅ Model registered with ID: {model_id}")
+                    st.rerun()
+        return
+    
+    # Display registered models
+    st.subheader(f"📋 Registered Models ({len(models)})")
+    
+    for mid, m in models.items():
+        with st.expander(f"🤖 {m['name']} v{m['version']} ({mid})"):
+            col1, col2, col3 = st.columns(3)
+            col1.write(f"**Type:** {m['model_type']}")
+            col2.write(f"**Target:** {m['target']}")
+            col3.write(f"**Created:** {m['created_at'].strftime('%Y-%m-%d %H:%M')}")
+            
+            st.write("**Features:**", ", ".join(m['features']))
+            st.write("**Metrics:**")
+            metrics_df = pd.DataFrame([m['metrics']])
+            safe_dataframe(metrics_df)
+            
+            # Export button
+            pkl_data = registry.export_model(mid)
+            if pkl_data:
+                st.download_button(
+                    label="📥 Export Model (.pkl)",
+                    data=pkl_data,
+                    file_name=f"{m['name']}_v{m['version']}.pkl",
+                    mime="application/octet-stream"
+                )
+    
+    # Model Comparison
+    st.subheader("📊 Model Comparison")
+    selected_models = st.multiselect("Select Models to Compare", list(models.keys()),
+                                     format_func=lambda x: f"{models[x]['name']} v{models[x]['version']}")
+    
+    if len(selected_models) >= 2:
+        comparison_df = registry.compare_models(selected_models)
+        safe_dataframe(comparison_df)
+        
+        # Visualization
+        metric_cols = [c for c in comparison_df.columns if c not in ['Model ID', 'Name', 'Version', 'Type', 'Created']]
+        if metric_cols:
+            fig = px.bar(comparison_df, x='Name', y=metric_cols[0], color='Version',
+                        title=f"Model Comparison: {metric_cols[0]}")
+            safe_plot(fig)
+
+
+# ============================================================================
+# NEW ENHANCEMENT 2: DATA DRIFT DETECTION
+# ============================================================================
+
+def render_data_drift(df):
+    """Data Drift Detection Module"""
+    st.markdown("""
+        <div class="phase-container">
+            <div class="phase-title">📉 Data Drift Detection</div>
+            <div class="phase-subtitle">Monitor Feature Distribution Changes Over Time</div>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    if df is None:
+        st.info("Please upload data to begin.")
+        return
+    
+    num_cols, cat_cols, date_cols = get_column_types(df)
+    
+    st.subheader("Drift Detection Methods")
+    
+    tabs = st.tabs(["Reference vs Current", "Time-Based Drift", "Statistical Tests", "Drift Report"])
+    
+    # Tab 1: Reference vs Current Split
+    with tabs[0]:
+        st.write("**Split data into reference (baseline) and current (production) sets**")
+        
+        split_method = st.radio("Split Method", ["Random Split", "Time-Based Split", "Manual Index"])
+        
+        if split_method == "Random Split":
+            ref_pct = st.slider("Reference Set %", 20, 80, 50)
+            ref_df = df.sample(frac=ref_pct/100, random_state=42)
+            curr_df = df.drop(ref_df.index)
+            
+        elif split_method == "Time-Based Split":
+            if date_cols:
+                date_col = st.selectbox("Date Column", date_cols)
+                split_date = st.date_input("Split Date", df[date_col].median())
+                ref_df = df[df[date_col] < pd.Timestamp(split_date)]
+                curr_df = df[df[date_col] >= pd.Timestamp(split_date)]
+            else:
+                st.warning("No date columns found.")
+                return
+        else:
+            split_idx = st.number_input("Split Index", 0, len(df)-1, len(df)//2)
+            ref_df = df.iloc[:split_idx]
+            curr_df = df.iloc[split_idx:]
+        
+        st.write(f"**Reference:** {len(ref_df):,} rows | **Current:** {len(curr_df):,} rows")
+        
+        # Distribution Comparison
+        if num_cols:
+            compare_col = st.selectbox("Compare Column", num_cols)
+            
+            fig = go.Figure()
+            fig.add_trace(go.Histogram(x=ref_df[compare_col], name='Reference', opacity=0.7, nbinsx=30))
+            fig.add_trace(go.Histogram(x=curr_df[compare_col], name='Current', opacity=0.7, nbinsx=30))
+            fig.update_layout(barmode='overlay', title=f"Distribution Comparison: {compare_col}")
+            safe_plot(fig)
+            
+            # KS Test
+            ks_stat, ks_pval = stats.ks_2samp(ref_df[compare_col].dropna(), curr_df[compare_col].dropna())
+            
+            col1, col2, col3 = st.columns(3)
+            col1.metric("KS Statistic", f"{ks_stat:.4f}")
+            col2.metric("P-Value", f"{ks_pval:.4f}")
+            col3.metric("Drift Detected?", "⚠️ Yes" if ks_pval < 0.05 else "✅ No")
+    
+    # Tab 2: Time-Based Drift
+    with tabs[1]:
+        st.write("**Track feature statistics over time windows**")
+        
+        if date_cols and num_cols:
+            date_col = st.selectbox("Date Column", date_cols, key="drift_date")
+            metric_col = st.selectbox("Metric Column", num_cols, key="drift_metric")
+            window = st.selectbox("Time Window", ["Daily", "Weekly", "Monthly"])
+            
+            df_time = df.copy()
+            df_time[date_col] = pd.to_datetime(df_time[date_col])
+            
+            freq_map = {"Daily": "D", "Weekly": "W", "Monthly": "M"}
+            
+            time_stats = df_time.groupby(pd.Grouper(key=date_col, freq=freq_map[window])).agg({
+                metric_col: ['mean', 'std', 'median', 'count']
+            }).reset_index()
+            time_stats.columns = [date_col, 'Mean', 'Std', 'Median', 'Count']
+            
+            fig = make_subplots(rows=2, cols=1, subplot_titles=("Mean Over Time", "Std Dev Over Time"))
+            fig.add_trace(go.Scatter(x=time_stats[date_col], y=time_stats['Mean'], mode='lines+markers', name='Mean'), row=1, col=1)
+            fig.add_trace(go.Scatter(x=time_stats[date_col], y=time_stats['Std'], mode='lines+markers', name='Std', line=dict(color='orange')), row=2, col=1)
+            fig.update_layout(height=500, title=f"Time-Based Drift: {metric_col}")
+            safe_plot(fig)
+            
+            # Detect significant changes
+            mean_change = time_stats['Mean'].pct_change().abs()
+            significant_changes = time_stats[mean_change > 0.1]
+            
+            if len(significant_changes) > 0:
+                st.warning(f"⚠️ Detected {len(significant_changes)} periods with >10% mean change")
+                safe_dataframe(significant_changes)
+        else:
+            st.warning("Need date and numeric columns for time-based drift.")
+    
+    # Tab 3: Statistical Tests
+    with tabs[2]:
+        st.write("**Comprehensive statistical drift tests**")
+        
+        if len(num_cols) >= 1:
+            test_results = []
+            
+            # Split data
+            mid_idx = len(df) // 2
+            ref = df.iloc[:mid_idx]
+            curr = df.iloc[mid_idx:]
+            
+            for col in num_cols[:10]:  # Limit to first 10 for performance
+                ref_data = ref[col].dropna()
+                curr_data = curr[col].dropna()
+                
+                if len(ref_data) > 10 and len(curr_data) > 10:
+                    # KS Test
+                    ks_stat, ks_p = stats.ks_2samp(ref_data, curr_data)
+                    
+                    # T-Test
+                    t_stat, t_p = stats.ttest_ind(ref_data, curr_data)
+                    
+                    # Mean/Std comparison
+                    mean_diff = abs(ref_data.mean() - curr_data.mean()) / ref_data.std() if ref_data.std() > 0 else 0
+                    
+                    test_results.append({
+                        'Column': col,
+                        'KS Statistic': round(ks_stat, 4),
+                        'KS P-Value': round(ks_p, 4),
+                        'T-Statistic': round(t_stat, 4),
+                        'T P-Value': round(t_p, 4),
+                        'Standardized Mean Diff': round(mean_diff, 4),
+                        'Drift Alert': '⚠️' if ks_p < 0.05 or t_p < 0.05 else '✅'
+                    })
+            
+            results_df = pd.DataFrame(test_results)
+            safe_dataframe(results_df)
+            
+            # Summary
+            drift_count = len(results_df[results_df['Drift Alert'] == '⚠️'])
+            st.metric("Columns with Detected Drift", f"{drift_count}/{len(results_df)}")
+    
+    # Tab 4: Drift Report
+    with tabs[3]:
+        st.write("**Generate comprehensive drift report**")
+        
+        if st.button("Generate Drift Report"):
+            report = f"""
+# Data Drift Analysis Report
+**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M')}
+
+## Dataset Overview
+- Total Rows: {len(df):,}
+- Numeric Columns: {len(num_cols)}
+- Categorical Columns: {len(cat_cols)}
+
+## Drift Summary
+"""
+            # Add drift analysis to report
+            mid_idx = len(df) // 2
+            ref = df.iloc[:mid_idx]
+            curr = df.iloc[mid_idx:]
+            
+            drift_detected = []
+            for col in num_cols[:10]:
+                ref_data = ref[col].dropna()
+                curr_data = curr[col].dropna()
+                if len(ref_data) > 10 and len(curr_data) > 10:
+                    _, ks_p = stats.ks_2samp(ref_data, curr_data)
+                    if ks_p < 0.05:
+                        drift_detected.append(col)
+            
+            report += f"\n**Columns with Significant Drift:** {', '.join(drift_detected) if drift_detected else 'None'}\n"
+            
+            st.download_button(
+                label="📥 Download Drift Report",
+                data=report,
+                file_name=f"drift_report_{datetime.now().strftime('%Y%m%d')}.md",
+                mime="text/markdown"
+            )
+
+
+# ============================================================================
+# NEW ENHANCEMENT 3: DATA VALIDATION RULES ENGINE
+# ============================================================================
+
+def render_data_validation(df):
+    """Data Validation Rules Engine"""
+    st.markdown("""
+        <div class="phase-container">
+            <div class="phase-title">✅ Data Validation Engine</div>
+            <div class="phase-subtitle">Define & Apply Custom Business Rules</div>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    if df is None:
+        st.info("Please upload data to begin.")
+        return
+    
+    num_cols, cat_cols, date_cols = get_column_types(df)
+    
+    # Initialize rules in session state
+    if 'validation_rules' not in st.session_state:
+        st.session_state.validation_rules = []
+    
+    tabs = st.tabs(["Define Rules", "Run Validation", "Validation Report", "Rule Templates"])
+    
+    # Tab 1: Define Rules
+    with tabs[0]:
+        st.subheader("➕ Add Validation Rule")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            rule_name = st.text_input("Rule Name", "")
+            rule_column = st.selectbox("Column", df.columns.tolist())
+            rule_type = st.selectbox("Rule Type", [
+                "Not Null", "Unique", "Range Check", "Regex Pattern",
+                "Value in List", "Data Type Check", "Custom Expression"
+            ])
+        
+        with col2:
+            rule_params = {}
+            
+            if rule_type == "Range Check":
+                rule_params['min'] = st.number_input("Min Value", value=0.0)
+                rule_params['max'] = st.number_input("Max Value", value=100.0)
+            elif rule_type == "Regex Pattern":
+                rule_params['pattern'] = st.text_input("Regex Pattern", r"^[A-Za-z]+$")
+            elif rule_type == "Value in List":
+                rule_params['values'] = st.text_input("Allowed Values (comma-separated)", "A,B,C")
+            elif rule_type == "Data Type Check":
+                rule_params['dtype'] = st.selectbox("Expected Type", ["numeric", "string", "datetime"])
+            elif rule_type == "Custom Expression":
+                rule_params['expression'] = st.text_area("Python Expression (use 'x' for value)", "x > 0")
+        
+        rule_severity = st.selectbox("Severity", ["Error", "Warning", "Info"])
+        
+        if st.button("Add Rule") and rule_name:
+            st.session_state.validation_rules.append({
+                'name': rule_name,
+                'column': rule_column,
+                'type': rule_type,
+                'params': rule_params,
+                'severity': rule_severity
+            })
+            st.success(f"✅ Rule '{rule_name}' added!")
+        
+        # Display existing rules
+        if st.session_state.validation_rules:
+            st.subheader("📋 Defined Rules")
+            for i, rule in enumerate(st.session_state.validation_rules):
+                col1, col2, col3 = st.columns([3, 1, 1])
+                col1.write(f"**{rule['name']}** ({rule['type']} on `{rule['column']}`)")
+                col2.write(f"Severity: {rule['severity']}")
+                if col3.button("🗑️", key=f"del_{i}"):
+                    st.session_state.validation_rules.pop(i)
+                    st.rerun()
+    
+    # Tab 2: Run Validation
+    with tabs[1]:
+        st.subheader("🔍 Run Validation")
+        
+        if not st.session_state.validation_rules:
+            st.info("No rules defined. Add rules in the 'Define Rules' tab.")
+            return
+        
+        if st.button("Run All Validations"):
+            results = []
+            
+            for rule in st.session_state.validation_rules:
+                col = rule['column']
+                rule_type = rule['type']
+                params = rule['params']
+                
+                if col not in df.columns:
+                    results.append({
+                        'Rule': rule['name'],
+                        'Column': col,
+                        'Status': 'Error',
+                        'Message': 'Column not found',
+                        'Failed Rows': 0
+                    })
+                    continue
+                
+                failed_count = 0
+                
+                if rule_type == "Not Null":
+                    failed_count = df[col].isna().sum()
+                    
+                elif rule_type == "Unique":
+                    failed_count = len(df) - df[col].nunique()
+                    
+                elif rule_type == "Range Check":
+                    mask = (df[col] < params['min']) | (df[col] > params['max'])
+                    failed_count = mask.sum()
+                    
+                elif rule_type == "Regex Pattern":
+                    import re
+                    pattern = re.compile(params['pattern'])
+                    mask = ~df[col].astype(str).str.match(pattern)
+                    failed_count = mask.sum()
+                    
+                elif rule_type == "Value in List":
+                    allowed = [v.strip() for v in params['values'].split(',')]
+                    mask = ~df[col].isin(allowed)
+                    failed_count = mask.sum()
+                    
+                elif rule_type == "Data Type Check":
+                    if params['dtype'] == 'numeric':
+                        failed_count = (~pd.api.types.is_numeric_dtype(df[col])) * len(df)
+                    elif params['dtype'] == 'datetime':
+                        failed_count = (~pd.api.types.is_datetime64_any_dtype(df[col])) * len(df)
+                        
+                elif rule_type == "Custom Expression":
+                    try:
+                        mask = ~df[col].apply(lambda x: eval(params['expression']))
+                        failed_count = mask.sum()
+                    except:
+                        failed_count = -1
+                
+                status = 'Pass' if failed_count == 0 else 'Fail'
+                results.append({
+                    'Rule': rule['name'],
+                    'Column': col,
+                    'Type': rule_type,
+                    'Severity': rule['severity'],
+                    'Status': status,
+                    'Failed Rows': failed_count,
+                    'Pass Rate': f"{(1 - failed_count/len(df))*100:.1f}%" if failed_count >= 0 else 'Error'
+                })
+            
+            results_df = pd.DataFrame(results)
+            
+            # Summary metrics
+            col1, col2, col3, col4 = st.columns(4)
+            col1.metric("Total Rules", len(results))
+            col2.metric("Passed", len(results_df[results_df['Status'] == 'Pass']))
+            col3.metric("Failed", len(results_df[results_df['Status'] == 'Fail']))
+            col4.metric("Overall Pass Rate", f"{len(results_df[results_df['Status'] == 'Pass'])/len(results)*100:.0f}%")
+            
+            # Results table with color coding
+            def highlight_status(row):
+                if row['Status'] == 'Pass':
+                    return ['background-color: #d4edda'] * len(row)
+                else:
+                    return ['background-color: #f8d7da'] * len(row)
+            
+            st.dataframe(results_df.style.apply(highlight_status, axis=1))
+    
+    # Tab 3: Validation Report
+    with tabs[2]:
+        st.subheader("📊 Validation Report")
+        
+        if st.button("Generate Validation Report"):
+            report = f"""
+# Data Validation Report
+**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M')}
+**Dataset:** {len(df):,} rows × {len(df.columns)} columns
+
+## Rules Summary
+Total Rules: {len(st.session_state.validation_rules)}
+
+## Rule Details
+"""
+            for rule in st.session_state.validation_rules:
+                report += f"\n### {rule['name']}\n"
+                report += f"- Column: `{rule['column']}`\n"
+                report += f"- Type: {rule['type']}\n"
+                report += f"- Severity: {rule['severity']}\n"
+            
+            st.download_button(
+                label="📥 Download Report",
+                data=report,
+                file_name=f"validation_report_{datetime.now().strftime('%Y%m%d')}.md",
+                mime="text/markdown"
+            )
+    
+    # Tab 4: Rule Templates
+    with tabs[3]:
+        st.subheader("📚 Rule Templates")
+        
+        templates = {
+            "Email Validation": {"type": "Regex Pattern", "params": {"pattern": r"^[\w\.-]+@[\w\.-]+\.\w+$"}},
+            "Phone Number": {"type": "Regex Pattern", "params": {"pattern": r"^\+?[\d\s-]{10,}$"}},
+            "Positive Numbers": {"type": "Range Check", "params": {"min": 0, "max": float('inf')}},
+            "Percentage (0-100)": {"type": "Range Check", "params": {"min": 0, "max": 100}},
+            "No Nulls": {"type": "Not Null", "params": {}},
+            "Unique Values": {"type": "Unique", "params": {}}
+        }
+        
+        for name, template in templates.items():
+            col1, col2 = st.columns([3, 1])
+            col1.write(f"**{name}** - {template['type']}")
+            if col2.button("Use", key=f"template_{name}"):
+                st.info(f"Template '{name}' selected. Configure in 'Define Rules' tab.")
+
+
+
+# ============================================================================
+# NEW ENHANCEMENT 4: A/B TEST CALCULATOR PRO
+# ============================================================================
+
+def render_ab_test_pro(df):
+    """Advanced A/B Testing Calculator"""
+    st.markdown("""
+        <div class="phase-container">
+            <div class="phase-title">🧪 A/B Test Calculator Pro</div>
+            <div class="phase-subtitle">Sequential Testing, MDE Calculator & Bayesian Analysis</div>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    tabs = st.tabs(["Sample Size Calculator", "Test Analysis", "Sequential Testing", "Bayesian A/B", "Multi-Armed Bandit"])
+    
+    # Tab 1: Sample Size Calculator
+    with tabs[0]:
+        st.subheader("📏 Sample Size & MDE Calculator")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            baseline_rate = st.number_input("Baseline Conversion Rate (%)", 1.0, 99.0, 10.0) / 100
+            mde = st.number_input("Minimum Detectable Effect (%)", 0.1, 50.0, 10.0) / 100
+            
+        with col2:
+            alpha = st.selectbox("Significance Level (α)", [0.01, 0.05, 0.10], index=1)
+            power = st.selectbox("Statistical Power (1-β)", [0.80, 0.85, 0.90, 0.95], index=0)
+        
+        if st.button("Calculate Sample Size"):
+            # Using normal approximation
+            z_alpha = stats.norm.ppf(1 - alpha/2)
+            z_beta = stats.norm.ppf(power)
+            
+            p1 = baseline_rate
+            p2 = baseline_rate * (1 + mde)
+            
+            pooled_p = (p1 + p2) / 2
+            
+            n = 2 * ((z_alpha * np.sqrt(2 * pooled_p * (1 - pooled_p)) + 
+                     z_beta * np.sqrt(p1 * (1 - p1) + p2 * (1 - p2))) ** 2) / ((p2 - p1) ** 2)
+            
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Sample Size per Group", f"{int(np.ceil(n)):,}")
+            col2.metric("Total Sample Size", f"{int(np.ceil(n * 2)):,}")
+            col3.metric("Expected Lift", f"{mde*100:.1f}%")
+            
+            # MDE curve
+            sample_sizes = np.linspace(100, n * 3, 50)
+            mdes = []
+            for ss in sample_sizes:
+                # Reverse calculation for MDE
+                se = np.sqrt(2 * baseline_rate * (1 - baseline_rate) / ss)
+                mde_val = (z_alpha + z_beta) * se / baseline_rate
+                mdes.append(mde_val * 100)
+            
+            fig = px.line(x=sample_sizes, y=mdes, 
+                         labels={'x': 'Sample Size per Group', 'y': 'MDE (%)'},
+                         title="MDE vs Sample Size Trade-off")
+            fig.add_vline(x=n, line_dash="dash", annotation_text="Your Sample Size")
+            safe_plot(fig)
+    
+    # Tab 2: Test Analysis
+    with tabs[1]:
+        st.subheader("📊 Analyze Test Results")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.write("**Control Group**")
+            control_visitors = st.number_input("Control Visitors", 100, 1000000, 10000)
+            control_conversions = st.number_input("Control Conversions", 0, control_visitors, 500)
+            
+        with col2:
+            st.write("**Treatment Group**")
+            treatment_visitors = st.number_input("Treatment Visitors", 100, 1000000, 10000)
+            treatment_conversions = st.number_input("Treatment Conversions", 0, treatment_visitors, 550)
+        
+        if st.button("Analyze Results"):
+            # Conversion rates
+            p_control = control_conversions / control_visitors
+            p_treatment = treatment_conversions / treatment_visitors
+            
+            # Pooled proportion
+            p_pooled = (control_conversions + treatment_conversions) / (control_visitors + treatment_visitors)
+            
+            # Standard error
+            se = np.sqrt(p_pooled * (1 - p_pooled) * (1/control_visitors + 1/treatment_visitors))
+            
+            # Z-score
+            z_score = (p_treatment - p_control) / se
+            
+            # P-value (two-tailed)
+            p_value = 2 * (1 - stats.norm.cdf(abs(z_score)))
+            
+            # Confidence interval
+            ci_low = (p_treatment - p_control) - 1.96 * se
+            ci_high = (p_treatment - p_control) + 1.96 * se
+            
+            # Relative lift
+            lift = (p_treatment - p_control) / p_control * 100
+            
+            # Display results
+            col1, col2, col3, col4 = st.columns(4)
+            col1.metric("Control Rate", f"{p_control*100:.2f}%")
+            col2.metric("Treatment Rate", f"{p_treatment*100:.2f}%")
+            col3.metric("Relative Lift", f"{lift:+.2f}%")
+            col4.metric("P-Value", f"{p_value:.4f}")
+            
+            # Significance
+            if p_value < 0.05:
+                st.success(f"✅ **Statistically Significant** at α=0.05 (p={p_value:.4f})")
+            else:
+                st.warning(f"⚠️ **Not Statistically Significant** at α=0.05 (p={p_value:.4f})")
+            
+            st.write(f"**95% Confidence Interval for Difference:** [{ci_low*100:.2f}%, {ci_high*100:.2f}%]")
+            
+            # Visualization
+            fig = go.Figure()
+            fig.add_trace(go.Bar(x=['Control', 'Treatment'], y=[p_control*100, p_treatment*100],
+                                error_y=dict(type='data', array=[1.96*np.sqrt(p_control*(1-p_control)/control_visitors)*100,
+                                                                  1.96*np.sqrt(p_treatment*(1-p_treatment)/treatment_visitors)*100])))
+            fig.update_layout(title="Conversion Rates with 95% CI", yaxis_title="Conversion Rate (%)")
+            safe_plot(fig)
+    
+    # Tab 3: Sequential Testing
+    with tabs[2]:
+        st.subheader("🔄 Sequential Testing (SPRT)")
+        st.info("Sequential Probability Ratio Test allows early stopping while controlling error rates.")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            seq_alpha = st.number_input("Type I Error (α)", 0.01, 0.20, 0.05, key="seq_alpha")
+            seq_beta = st.number_input("Type II Error (β)", 0.01, 0.30, 0.20, key="seq_beta")
+            
+        with col2:
+            p0 = st.number_input("Null Hypothesis Rate", 0.01, 0.99, 0.10, key="seq_p0")
+            p1 = st.number_input("Alternative Hypothesis Rate", 0.01, 0.99, 0.12, key="seq_p1")
+        
+        # SPRT boundaries
+        A = (1 - seq_beta) / seq_alpha
+        B = seq_beta / (1 - seq_alpha)
+        
+        st.write(f"**Upper Boundary (Accept H1):** log({A:.2f}) = {np.log(A):.4f}")
+        st.write(f"**Lower Boundary (Accept H0):** log({B:.2f}) = {np.log(B):.4f}")
+        
+        # Simulate SPRT path
+        if st.button("Simulate SPRT Path"):
+            np.random.seed(42)
+            true_p = p1  # Assume alternative is true
+            
+            log_lr = [0]
+            n_samples = 500
+            
+            for i in range(n_samples):
+                x = np.random.binomial(1, true_p)
+                lr_increment = x * np.log(p1/p0) + (1-x) * np.log((1-p1)/(1-p0))
+                log_lr.append(log_lr[-1] + lr_increment)
+                
+                if log_lr[-1] >= np.log(A) or log_lr[-1] <= np.log(B):
+                    break
+            
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(y=log_lr, mode='lines', name='Log Likelihood Ratio'))
+            fig.add_hline(y=np.log(A), line_dash="dash", line_color="green", annotation_text="Accept H1")
+            fig.add_hline(y=np.log(B), line_dash="dash", line_color="red", annotation_text="Accept H0")
+            fig.update_layout(title="SPRT Path", xaxis_title="Sample Number", yaxis_title="Log Likelihood Ratio")
+            safe_plot(fig)
+            
+            if log_lr[-1] >= np.log(A):
+                st.success(f"✅ Stopped at sample {len(log_lr)-1}: Accept H1 (Treatment is better)")
+            elif log_lr[-1] <= np.log(B):
+                st.info(f"ℹ️ Stopped at sample {len(log_lr)-1}: Accept H0 (No difference)")
+            else:
+                st.warning(f"⚠️ Inconclusive after {len(log_lr)-1} samples")
+    
+    # Tab 4: Bayesian A/B
+    with tabs[3]:
+        st.subheader("🎲 Bayesian A/B Testing")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.write("**Control**")
+            bayes_control_success = st.number_input("Successes (Control)", 0, 100000, 500, key="bc_s")
+            bayes_control_total = st.number_input("Total (Control)", 1, 100000, 5000, key="bc_t")
+            
+        with col2:
+            st.write("**Treatment**")
+            bayes_treatment_success = st.number_input("Successes (Treatment)", 0, 100000, 550, key="bt_s")
+            bayes_treatment_total = st.number_input("Total (Treatment)", 1, 100000, 5000, key="bt_t")
+        
+        # Prior parameters (Beta distribution)
+        prior_alpha = st.number_input("Prior α (Beta)", 1, 100, 1)
+        prior_beta = st.number_input("Prior β (Beta)", 1, 100, 1)
+        
+        if st.button("Run Bayesian Analysis"):
+            # Posterior parameters
+            post_alpha_c = prior_alpha + bayes_control_success
+            post_beta_c = prior_beta + bayes_control_total - bayes_control_success
+            
+            post_alpha_t = prior_alpha + bayes_treatment_success
+            post_beta_t = prior_beta + bayes_treatment_total - bayes_treatment_success
+            
+            # Monte Carlo simulation
+            n_samples = 100000
+            samples_c = np.random.beta(post_alpha_c, post_beta_c, n_samples)
+            samples_t = np.random.beta(post_alpha_t, post_beta_t, n_samples)
+            
+            prob_t_better = (samples_t > samples_c).mean()
+            expected_lift = ((samples_t - samples_c) / samples_c).mean() * 100
+            
+            col1, col2, col3 = st.columns(3)
+            col1.metric("P(Treatment > Control)", f"{prob_t_better:.1%}")
+            col2.metric("Expected Lift", f"{expected_lift:+.2f}%")
+            col3.metric("Risk of Choosing Treatment", f"{(1-prob_t_better):.1%}")
+            
+            # Posterior distributions
+            x = np.linspace(0, 1, 1000)
+            pdf_c = stats.beta.pdf(x, post_alpha_c, post_beta_c)
+            pdf_t = stats.beta.pdf(x, post_alpha_t, post_beta_t)
+            
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=x, y=pdf_c, fill='tozeroy', name='Control Posterior', opacity=0.7))
+            fig.add_trace(go.Scatter(x=x, y=pdf_t, fill='tozeroy', name='Treatment Posterior', opacity=0.7))
+            fig.update_layout(title="Posterior Distributions", xaxis_title="Conversion Rate", yaxis_title="Density")
+            safe_plot(fig)
+            
+            # Lift distribution
+            lift_samples = (samples_t - samples_c) / samples_c * 100
+            
+            fig2 = px.histogram(x=lift_samples, nbins=50, title="Lift Distribution")
+            fig2.add_vline(x=0, line_dash="dash", line_color="red", annotation_text="No Effect")
+            safe_plot(fig2)
+    
+    # Tab 5: Multi-Armed Bandit
+    with tabs[4]:
+        st.subheader("🎰 Multi-Armed Bandit Simulation")
+        st.info("Thompson Sampling for dynamic traffic allocation")
+        
+        n_arms = st.number_input("Number of Variants", 2, 10, 3)
+        true_rates = []
+        
+        for i in range(n_arms):
+            rate = st.slider(f"True Rate for Variant {i+1}", 0.01, 0.30, 0.05 + i*0.02, key=f"mab_{i}")
+            true_rates.append(rate)
+        
+        n_rounds = st.number_input("Simulation Rounds", 100, 10000, 1000)
+        
+        if st.button("Run Bandit Simulation"):
+            # Thompson Sampling
+            successes = np.ones(n_arms)
+            failures = np.ones(n_arms)
+            
+            arm_selections = []
+            cumulative_reward = []
+            total_reward = 0
+            
+            for t in range(n_rounds):
+                # Sample from posterior
+                samples = [np.random.beta(successes[i], failures[i]) for i in range(n_arms)]
+                chosen_arm = np.argmax(samples)
+                arm_selections.append(chosen_arm)
+                
+                # Observe reward
+                reward = np.random.binomial(1, true_rates[chosen_arm])
+                total_reward += reward
+                cumulative_reward.append(total_reward)
+                
+                # Update posterior
+                if reward:
+                    successes[chosen_arm] += 1
+                else:
+                    failures[chosen_arm] += 1
+            
+            # Results
+            arm_counts = pd.Series(arm_selections).value_counts().sort_index()
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.write("**Arm Selection Distribution**")
+                fig = px.bar(x=[f"Variant {i+1}" for i in arm_counts.index], y=arm_counts.values,
+                            title="Traffic Allocation")
+                safe_plot(fig)
+            
+            with col2:
+                st.write("**Cumulative Reward**")
+                fig = px.line(y=cumulative_reward, title="Cumulative Reward Over Time")
+                safe_plot(fig)
+            
+            # Regret analysis
+            optimal_rate = max(true_rates)
+            expected_optimal = optimal_rate * n_rounds
+            regret = expected_optimal - total_reward
+            
+            st.metric("Total Regret", f"{regret:.0f}")
+            st.write(f"Best arm identified: **Variant {np.argmax(successes / (successes + failures)) + 1}**")
+
+
+# ============================================================================
+# NEW ENHANCEMENT 5: CAUSAL INFERENCE SUITE
+# ============================================================================
+
+def render_causal_inference(df):
+    """Causal Inference Analysis Suite"""
+    st.markdown("""
+        <div class="phase-container">
+            <div class="phase-title">🔬 Causal Inference Suite</div>
+            <div class="phase-subtitle">Propensity Score Matching, DiD & Instrumental Variables</div>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    if df is None:
+        st.info("Please upload data to begin.")
+        return
+    
+    num_cols, cat_cols, _ = get_column_types(df)
+    
+    tabs = st.tabs(["Propensity Score Matching", "Difference-in-Differences", "Regression Discontinuity", "Instrumental Variables"])
+    
+    # Tab 1: Propensity Score Matching
+    with tabs[0]:
+        st.subheader("⚖️ Propensity Score Matching (PSM)")
+        
+        if len(cat_cols) == 0:
+            st.warning("Need at least one categorical column for treatment indicator.")
+            return
+        
+        treatment_col = st.selectbox("Treatment Indicator (Binary)", cat_cols)
+        outcome_col = st.selectbox("Outcome Variable", num_cols)
+        covariates = st.multiselect("Covariates (Confounders)", [c for c in num_cols if c != outcome_col])
+        
+        if not covariates:
+            st.warning("Select at least one covariate.")
+            return
+        
+        if st.button("Run PSM Analysis"):
+            # Prepare data
+            df_psm = df[[treatment_col, outcome_col] + covariates].dropna()
+            
+            # Encode treatment
+            le = LabelEncoder()
+            df_psm['treatment'] = le.fit_transform(df_psm[treatment_col])
+            
+            if df_psm['treatment'].nunique() != 2:
+                st.error("Treatment must be binary.")
+                return
+            
+            # Estimate propensity scores
+            X = df_psm[covariates]
+            y = df_psm['treatment']
+            
+            ps_model = LogisticRegression(max_iter=1000)
+            ps_model.fit(X, y)
+            
+            df_psm['propensity_score'] = ps_model.predict_proba(X)[:, 1]
+            
+            # Propensity score distribution
+            fig = go.Figure()
+            fig.add_trace(go.Histogram(x=df_psm[df_psm['treatment']==0]['propensity_score'], 
+                                       name='Control', opacity=0.7, nbinsx=30))
+            fig.add_trace(go.Histogram(x=df_psm[df_psm['treatment']==1]['propensity_score'], 
+                                       name='Treatment', opacity=0.7, nbinsx=30))
+            fig.update_layout(barmode='overlay', title="Propensity Score Distribution")
+            safe_plot(fig)
+            
+            # Nearest neighbor matching
+            treated = df_psm[df_psm['treatment'] == 1]
+            control = df_psm[df_psm['treatment'] == 0]
+            
+            if len(treated) == 0 or len(control) == 0:
+                st.error("Need observations in both treatment and control groups.")
+                return
+            
+            # Simple 1:1 matching
+            nn = NearestNeighbors(n_neighbors=1)
+            nn.fit(control[['propensity_score']])
+            
+            distances, indices = nn.kneighbors(treated[['propensity_score']])
+            
+            matched_control = control.iloc[indices.flatten()]
+            
+            # Calculate ATT
+            att = treated[outcome_col].mean() - matched_control[outcome_col].mean()
+            
+            # Bootstrap CI
+            n_boot = 1000
+            att_boots = []
+            for _ in range(n_boot):
+                idx_t = np.random.choice(len(treated), len(treated), replace=True)
+                idx_c = np.random.choice(len(matched_control), len(matched_control), replace=True)
+                att_boot = treated.iloc[idx_t][outcome_col].mean() - matched_control.iloc[idx_c][outcome_col].mean()
+                att_boots.append(att_boot)
+            
+            ci_low = np.percentile(att_boots, 2.5)
+            ci_high = np.percentile(att_boots, 97.5)
+            
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Average Treatment Effect (ATT)", f"{att:.4f}")
+            col2.metric("95% CI Lower", f"{ci_low:.4f}")
+            col3.metric("95% CI Upper", f"{ci_high:.4f}")
+            
+            # Covariate balance check
+            st.subheader("Covariate Balance (Standardized Mean Difference)")
+            balance_data = []
+            for cov in covariates:
+                before_smd = (treated[cov].mean() - control[cov].mean()) / control[cov].std()
+                after_smd = (treated[cov].mean() - matched_control[cov].mean()) / matched_control[cov].std()
+                balance_data.append({
+                    'Covariate': cov,
+                    'Before Matching': round(before_smd, 4),
+                    'After Matching': round(after_smd, 4)
+                })
+            
+            balance_df = pd.DataFrame(balance_data)
+            safe_dataframe(balance_df)
+    
+    # Tab 2: Difference-in-Differences
+    with tabs[1]:
+        st.subheader("📊 Difference-in-Differences (DiD)")
+        
+        st.info("DiD requires panel data with pre/post periods and treatment/control groups.")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            outcome = st.selectbox("Outcome Variable", num_cols, key="did_outcome")
+            treatment = st.selectbox("Treatment Group Indicator", cat_cols, key="did_treat")
+            
+        with col2:
+            time_period = st.selectbox("Time Period Indicator", cat_cols, key="did_time")
+        
+        if st.button("Run DiD Analysis"):
+            df_did = df[[outcome, treatment, time_period]].dropna()
+            
+            # Create interaction term
+            df_did['treatment_binary'] = LabelEncoder().fit_transform(df_did[treatment])
+            df_did['post_binary'] = LabelEncoder().fit_transform(df_did[time_period])
+            df_did['did_interaction'] = df_did['treatment_binary'] * df_did['post_binary']
+            
+            # Run regression
+            formula = f"{outcome} ~ treatment_binary + post_binary + did_interaction"
+            model = smf.ols(formula, data=df_did).fit()
+            
+            st.text(model.summary().as_text())
+            
+            # DiD estimate
+            did_estimate = model.params['did_interaction']
+            did_pvalue = model.pvalues['did_interaction']
+            
+            st.metric("DiD Estimate (Treatment Effect)", f"{did_estimate:.4f}")
+            st.metric("P-Value", f"{did_pvalue:.4f}")
+            
+            if did_pvalue < 0.05:
+                st.success("✅ Statistically significant treatment effect detected.")
+            else:
+                st.warning("⚠️ Treatment effect not statistically significant.")
+    
+    # Tab 3: Regression Discontinuity
+    with tabs[2]:
+        st.subheader("📈 Regression Discontinuity Design (RDD)")
+        
+        running_var = st.selectbox("Running Variable", num_cols, key="rdd_run")
+        outcome_var = st.selectbox("Outcome Variable", num_cols, key="rdd_out")
+        cutoff = st.number_input("Cutoff Value", value=float(df[running_var].median()))
+        bandwidth = st.number_input("Bandwidth", value=float(df[running_var].std()))
+        
+        if st.button("Run RDD Analysis"):
+            df_rdd = df[[running_var, outcome_var]].dropna()
+            
+            # Center running variable
+            df_rdd['centered'] = df_rdd[running_var] - cutoff
+            df_rdd['treatment'] = (df_rdd[running_var] >= cutoff).astype(int)
+            
+            # Filter by bandwidth
+            df_rdd = df_rdd[abs(df_rdd['centered']) <= bandwidth]
+            
+            # Local linear regression
+            df_rdd['interaction'] = df_rdd['centered'] * df_rdd['treatment']
+            
+            formula = f"{outcome_var} ~ centered + treatment + interaction"
+            model = smf.ols(formula, data=df_rdd).fit()
+            
+            st.text(model.summary().as_text())
+            
+            # Visualization
+            fig = px.scatter(df_rdd, x='centered', y=outcome_var, color='treatment',
+                            title="RDD Visualization")
+            fig.add_vline(x=0, line_dash="dash", annotation_text="Cutoff")
+            safe_plot(fig)
+            
+            st.metric("Discontinuity Estimate", f"{model.params['treatment']:.4f}")
+    
+    # Tab 4: Instrumental Variables
+    with tabs[3]:
+        st.subheader("🎯 Instrumental Variables (2SLS)")
+        
+        st.info("IV estimation requires a valid instrument that affects treatment but not outcome directly.")
+        
+        outcome = st.selectbox("Outcome (Y)", num_cols, key="iv_y")
+        treatment = st.selectbox("Endogenous Treatment (X)", num_cols, key="iv_x")
+        instrument = st.selectbox("Instrument (Z)", [c for c in num_cols if c not in [outcome, treatment]], key="iv_z")
+        controls = st.multiselect("Control Variables", [c for c in num_cols if c not in [outcome, treatment, instrument]], key="iv_ctrl")
+        
+        if st.button("Run 2SLS"):
+            df_iv = df[[outcome, treatment, instrument] + controls].dropna()
+            
+            # First stage: regress treatment on instrument
+            first_stage_formula = f"{treatment} ~ {instrument}"
+            if controls:
+                first_stage_formula += " + " + " + ".join(controls)
+            
+            first_stage = smf.ols(first_stage_formula, data=df_iv).fit()
+            
+            st.subheader("First Stage Results")
+            st.write(f"**F-statistic:** {first_stage.fvalue:.2f}")
+            
+            if first_stage.fvalue < 10:
+                st.warning("⚠️ Weak instrument (F < 10). Results may be unreliable.")
+            
+            # Get predicted values
+            df_iv['treatment_hat'] = first_stage.predict(df_iv)
+            
+            # Second stage: regress outcome on predicted treatment
+            second_stage_formula = f"{outcome} ~ treatment_hat"
+            if controls:
+                second_stage_formula += " + " + " + ".join(controls)
+            
+            second_stage = smf.ols(second_stage_formula, data=df_iv).fit()
+            
+            st.subheader("Second Stage Results (2SLS)")
+            st.text(second_stage.summary().as_text())
+            
+            # Compare with OLS
+            ols_formula = f"{outcome} ~ {treatment}"
+            if controls:
+                ols_formula += " + " + " + ".join(controls)
+            
+            ols_model = smf.ols(ols_formula, data=df_iv).fit()
+            
+            col1, col2 = st.columns(2)
+            col1.metric("OLS Estimate", f"{ols_model.params[treatment]:.4f}")
+            col2.metric("2SLS Estimate", f"{second_stage.params['treatment_hat']:.4f}")
+
+
+# ============================================================================
+# NEW ENHANCEMENT 6: AUTOMATED EDA REPORT
+# ============================================================================
+
+def render_auto_eda(df):
+    """Automated Exploratory Data Analysis Report"""
+    st.markdown("""
+        <div class="phase-container">
+            <div class="phase-title">📋 Automated EDA Report</div>
+            <div class="phase-subtitle">One-Click Comprehensive Data Profiling</div>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    if df is None:
+        st.info("Please upload data to begin.")
+        return
+    
+    num_cols, cat_cols, date_cols = get_column_types(df)
+    
+    if st.button("🚀 Generate Full EDA Report"):
+        with st.spinner("Analyzing your data..."):
+            
+            # 1. Dataset Overview
+            st.header("1️⃣ Dataset Overview")
+            col1, col2, col3, col4 = st.columns(4)
+            col1.metric("Rows", f"{len(df):,}")
+            col2.metric("Columns", len(df.columns))
+            col3.metric("Numeric", len(num_cols))
+            col4.metric("Categorical", len(cat_cols))
+            
+            # Memory usage
+            memory_mb = df.memory_usage(deep=True).sum() / 1024 / 1024
+            st.write(f"**Memory Usage:** {memory_mb:.2f} MB")
+            
+            # 2. Data Types
+            st.header("2️⃣ Data Types Distribution")
+            dtype_counts = df.dtypes.value_counts()
+            fig = px.pie(values=dtype_counts.values, names=dtype_counts.index.astype(str),
+                        title="Column Data Types")
+            safe_plot(fig)
+            
+            # 3. Missing Values
+            st.header("3️⃣ Missing Values Analysis")
+            missing = df.isnull().sum()
+            missing_pct = (missing / len(df) * 100).round(2)
+            missing_df = pd.DataFrame({
+                'Column': missing.index,
+                'Missing Count': missing.values,
+                'Missing %': missing_pct.values
+            }).sort_values('Missing %', ascending=False)
+            
+            if missing.sum() > 0:
+                fig = px.bar(missing_df[missing_df['Missing Count'] > 0], 
+                            x='Column', y='Missing %', title="Missing Values by Column")
+                safe_plot(fig)
+            else:
+                st.success("✅ No missing values!")
+            
+            # 4. Numeric Summary
+            st.header("4️⃣ Numeric Variables Summary")
+            if num_cols:
+                desc = df[num_cols].describe().T
+                desc['skewness'] = df[num_cols].skew()
+                desc['kurtosis'] = df[num_cols].kurtosis()
+                safe_dataframe(desc)
+                
+                # Distribution plots
+                st.subheader("Distributions")
+                n_plots = min(6, len(num_cols))
+                cols = st.columns(3)
+                for i, col in enumerate(num_cols[:n_plots]):
+                    with cols[i % 3]:
+                        fig = px.histogram(df, x=col, title=col, nbins=30)
+                        fig.update_layout(height=250)
+                        safe_plot(fig)
+            
+            # 5. Categorical Summary
+            st.header("5️⃣ Categorical Variables Summary")
+            if cat_cols:
+                for col in cat_cols[:5]:
+                    st.subheader(f"`{col}`")
+                    value_counts = df[col].value_counts().head(10)
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.write(f"Unique values: {df[col].nunique()}")
+                        safe_dataframe(value_counts.reset_index())
+                    with col2:
+                        fig = px.bar(x=value_counts.index.astype(str), y=value_counts.values,
+                                    title=f"Top 10 Values")
+                        fig.update_layout(height=250)
+                        safe_plot(fig)
+            
+            # 6. Correlations
+            st.header("6️⃣ Correlation Analysis")
+            if len(num_cols) > 1:
+                corr = df[num_cols].corr()
+                fig = px.imshow(corr, text_auto='.2f', color_continuous_scale='RdBu_r',
+                               title="Correlation Matrix")
+                safe_plot(fig)
+                
+                # Top correlations
+                corr_pairs = []
+                for i in range(len(corr.columns)):
+                    for j in range(i+1, len(corr.columns)):
+                        corr_pairs.append({
+                            'Variable 1': corr.columns[i],
+                            'Variable 2': corr.columns[j],
+                            'Correlation': corr.iloc[i, j]
+                        })
+                
+                corr_df = pd.DataFrame(corr_pairs).sort_values('Correlation', key=abs, ascending=False)
+                st.subheader("Top Correlations")
+                safe_dataframe(corr_df.head(10))
+            
+            # 7. Outliers
+            st.header("7️⃣ Outlier Detection")
+            if num_cols:
+                outlier_summary = []
+                for col in num_cols:
+                    Q1 = df[col].quantile(0.25)
+                    Q3 = df[col].quantile(0.75)
+                    IQR = Q3 - Q1
+                    outliers = ((df[col] < Q1 - 1.5*IQR) | (df[col] > Q3 + 1.5*IQR)).sum()
+                    outlier_summary.append({
+                        'Column': col,
+                        'Outliers': outliers,
+                        'Outlier %': round(outliers/len(df)*100, 2)
+                    })
+                
+                outlier_df = pd.DataFrame(outlier_summary).sort_values('Outliers', ascending=False)
+                safe_dataframe(outlier_df)
+            
+            # 8. Key Insights
+            st.header("8️⃣ Key Insights")
+            
+            insights = []
+            
+            # Missing data insight
+            high_missing = missing_df[missing_df['Missing %'] > 20]
+            if len(high_missing) > 0:
+                insights.append(f"⚠️ {len(high_missing)} columns have >20% missing values")
+            
+            # Correlation insight
+            if len(num_cols) > 1:
+                high_corr = corr_df[abs(corr_df['Correlation']) > 0.8]
+                if len(high_corr) > 0:
+                    insights.append(f"🔗 {len(high_corr)} variable pairs have correlation >0.8")
+            
+            # Skewness insight
+            if num_cols:
+                skewed = df[num_cols].skew()
+                highly_skewed = skewed[abs(skewed) > 1]
+                if len(highly_skewed) > 0:
+                    insights.append(f"📊 {len(highly_skewed)} variables are highly skewed (|skew| > 1)")
+            
+            # Cardinality insight
+            if cat_cols:
+                high_card = [c for c in cat_cols if df[c].nunique() > 50]
+                if high_card:
+                    insights.append(f"🏷️ {len(high_card)} categorical columns have high cardinality (>50 unique)")
+            
+            for insight in insights:
+                st.write(insight)
+            
+            if not insights:
+                st.success("✅ No major data quality issues detected!")
+
+
+
 def sidebar_processor():
     """Updated sidebar with all new phases"""
     with st.sidebar:
@@ -3523,32 +4804,55 @@ def sidebar_processor():
         # New Categorized Navigation
         NAV_STRUCTURE = {
             "🔍 Data & Quality": [
-                ('Monitor', 'Monitor'), ('Data Quality', 'Data Quality'), 
-                ('Anomaly Detection', 'Anomalies'), ('Feature Eng', 'Features')
+                ('Monitor', 'Monitor'), 
+                ('Data Quality', 'Data Quality'), 
+                ('Anomaly Detection', 'Anomalies'), 
+                ('Feature Eng', 'Features'),
+                ('Data Validation', 'Validation'),
+                ('Data Drift', 'Drift Detection')
             ],
             "📊 Exploratory & Visuals": [
-                ('Explore', 'Explore'), ('Correlation', 'Correlations'), ('Cluster', 'Cluster'),
-                ('3D Scatter', '3D Scatter'), ('Sankey Diagram', 'Sankey'), ('Network Graph', 'Network')
+                ('Automated EDA', 'Auto EDA'),
+                ('Explore', 'Explore'), 
+                ('Correlation', 'Correlations'), 
+                ('Cluster', 'Cluster'),
+                ('3D Scatter', '3D Scatter'), 
+                ('Sankey Diagram', 'Sankey'), 
+                ('Network Graph', 'Network')
             ],
             "🤖 Predictive Modeling": [
-                ('Predictive Model', 'Models'), ('Regression', 'Regression'), ('Deep Learning', 'Deep Learning'),
-                ('Explainability', 'Explainability'), ('NLP Suite', 'NLP Suite')
+                ('Predictive Model', 'Models'), 
+                ('Regression', 'Regression'), 
+                ('Model Registry', 'Model Registry'),
+                ('Deep Learning', 'Deep Learning'),
+                ('Explainability', 'Explainability'), 
+                ('NLP Suite', 'NLP Suite')
             ],
             "📉 Statistical Analysis": [
-                ('Statistical Test', 'Statistical'), ('Statistics Advanced', 'Statistics+'),
-                ('GLM', 'GLM'), ('Multivariate', 'Multivariate'), ('Survival', 'Survival'), 
+                ('Statistical Test', 'Statistical'), 
+                ('Statistics Advanced', 'Statistics+'),
+                ('A/B Test Pro', 'A/B Testing Pro'),
+                ('Causal Inference', 'Causal Inference'),
+                ('GLM', 'GLM'), 
+                ('Multivariate', 'Multivariate'), 
+                ('Survival', 'Survival'), 
                 ('Power Analysis', 'Power')
             ],
             "📈 Time Series": [
-                ('Time Series', 'Time Series'), ('Timeseries Advanced', 'Time Series+')
+                ('Time Series', 'Time Series'), 
+                ('Timeseries Advanced', 'Time Series+')
             ],
             "💼 Business Intelligence": [
-                ('Business Analytics', 'Business'), ('BI Analytics', 'BI Analytics'),
-                ('Market Basket', 'Market Basket'), ('Pareto Analysis', 'Pareto (80/20)'), 
+                ('Business Analytics', 'Business'), 
+                ('BI Analytics', 'BI Analytics'),
+                ('Market Basket', 'Market Basket'), 
+                ('Pareto Analysis', 'Pareto (80/20)'), 
                 ('Impact', 'Impact')
             ],
             "📝 Reporting": [
-                ('Report', 'Report'), ('PDF Report', 'PDF Report'), ('Smart Narrative', 'Smart Insights')
+                ('Report', 'Report'), 
+                ('PDF Report', 'PDF Report'), 
+                ('Smart Narrative', 'Smart Insights')
             ]
         }
         
@@ -3696,7 +5000,7 @@ def sidebar_processor():
                         st.error(f"Export Error: {e}")
                 
         st.divider()
-        st.caption("v1.0")
+        st.caption("v1.1 | Enhanced Edition")
         return phase, df
 
 # ============================================================================
@@ -3730,6 +5034,7 @@ def main():
     elif phase == "Multivariate": safe_render(render_multivariate, df)
     elif phase == "Survival": safe_render(render_survival, df)
     elif phase == "Power Analysis": safe_render(render_power_analysis, df)
+    
     # Advanced Phases
     elif phase == '3D Scatter': safe_render(render_3d_scatter, df)
     elif phase == 'Sankey Diagram': safe_render(render_sankey_diagram, df)
@@ -3743,6 +5048,14 @@ def main():
     elif phase == 'Deep Learning': safe_render(render_deep_learning, df)
     elif phase == 'NLP Suite': safe_render(render_nlp_suite, df)
     elif phase == 'BI Analytics': safe_render(render_bi_analytics, df)
+    
+    # New Modules v1.1
+    elif phase == 'Auto EDA': safe_render(render_auto_eda, df)
+    elif phase == 'Validation': safe_render(render_data_validation, df)
+    elif phase == 'Drift Detection': safe_render(render_data_drift, df)
+    elif phase == 'Model Registry': safe_render(render_model_registry, df)
+    elif phase == 'A/B Testing Pro': safe_render(render_ab_test_pro, df)
+    elif phase == 'Causal Inference': safe_render(render_causal_inference, df)
 
 if __name__ == "__main__":
     main()
