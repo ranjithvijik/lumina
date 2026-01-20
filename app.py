@@ -493,8 +493,12 @@ def safe_dataframe(data, **kwargs):
     kwargs.pop('use_container_width', None)
     kwargs.pop('width', None)
     
-    # Use the standard parameter that works across versions
-    st.dataframe(df_disp, use_container_width=True, **kwargs)
+    # NEW API: use width='stretch' instead of use_container_width=True
+    try:
+        st.dataframe(df_disp, use_container_width=True, **kwargs)
+    except TypeError:
+        # Fallback if use_container_width is actually removed
+        st.dataframe(df_disp, **kwargs)
 
 def safe_plot(fig, height=None, **kwargs):
     if fig is None: return
@@ -503,8 +507,13 @@ def safe_plot(fig, height=None, **kwargs):
     
     if height:
         fig.update_layout(height=height)
-        
-    st.plotly_chart(fig, use_container_width=True, **kwargs)
+    
+    # NEW API: use width='stretch' instead of use_container_width=True
+    try:
+        st.plotly_chart(fig, use_container_width=True, **kwargs)
+    except TypeError:
+         # Fallback
+        st.plotly_chart(fig, **kwargs)
 
 def get_column_types(df):
     numeric = df.select_dtypes(include=[np.number]).columns.tolist()
