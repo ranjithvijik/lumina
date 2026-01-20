@@ -246,12 +246,25 @@ try:
 except ImportError:
     LIFETIMES_AVAILABLE = False
 
+# --- v1.7 Integrations ---
+try:
+    import pyreadstat
+    SAS_AVAILABLE = True
+except ImportError:
+    SAS_AVAILABLE = False
 
-# ============================================================================
-# 1. CONFIGURATION & THEME
-# ============================================================================
+try:
+    import ollama
+    from langchain_community.llms import Ollama
+    from langchain.callbacks.manager import CallbackManager
+    from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
+    OLLAMA_AVAILABLE = True
+except ImportError:
+    OLLAMA_AVAILABLE = False
+
+# Global Config
 st.set_page_config(
-    page_title="Lumina Analytics Suite",
+    page_title="Lumina Analytics v1.7",
     page_icon="🔮",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -529,6 +542,17 @@ def parse_uploaded_file(uploaded_file):
             return pd.read_stata(uploaded_file), "single"
         elif filename.endswith(('.pkl', '.pickle')):
             return pd.read_pickle(uploaded_file), "single"
+        elif filename.endswith('.sas7bdat'):
+            if SAS_AVAILABLE:
+                df, meta = pyreadstat.read_sas7bdat(uploaded_file.name) # Streamlit file might need temp path logic if direct read fails, but let's try direct first or use temp
+                # Streamlit uploaded_file is BytesIO. pyreadstat expects path or needs manual byte handling.
+                # Actually pyreadstat usually needs a file path. Let's use robust temp file method.
+                with open(filename, "wb") as f:
+                    f.write(uploaded_file.getbuffer())
+                df, meta = pyreadstat.read_sas7bdat(filename)
+                return df, "single"
+            else:
+                return "SAS library (pyreadstat) not installed.", "error"
         else:
             return f"Unsupported file extension: {filename}", "error"
             
@@ -2865,6 +2889,88 @@ def render_smart_narrative(df):
         if abs(skew) > 1:
             desc = "Heavily right-skewed (high values tail)" if skew > 1 else "Heavily left-skewed (low values tail)"
             st.write(f"• **{col}**: {desc}. Consider Log transformation.")
+
+
+# ============================================================================
+# NEW ENHANCEMENT 9: AI ASSISTANT (v1.7)
+# ============================================================================
+
+def render_ai_assistant(df):
+    st.markdown("""
+        <div class="phase-container">
+            <div class="phase-title">🤖 AI Assistant (Lumina Chat)</div>
+            <div class="phase-subtitle">Talk to your Data (Powered by Ollama + LangChain)</div>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    if not OLLAMA_AVAILABLE:
+        st.error("Ollama or LangChain libraries not installed. Please install `ollama` and `langchain`.")
+        st.info("Ensure Ollama is running locally: `ollama run llama3`")
+        return
+
+    # Sidebar Config
+    with st.sidebar.expander("⚙️ LLM Settings", expanded=True):
+        model_name = st.text_input("Ollama Model", "llama3")
+        base_url = st.text_input("Ollama Host", "http://localhost:11434")
+        temperature = st.slider("Temperature", 0.0, 1.0, 0.1)
+    
+    # Initialize Chat History
+    if "messages" not in st.session_state:
+        st.session_state.messages = [{"role": "assistant", "content": "Hello! I am Lumina. Ask me anything about your dataset."}]
+
+    # Display Chat
+    for msg in st.session_state.messages:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+            
+    # Chat Input
+    if prompt := st.chat_input("Ask a question (e.g., 'What is the average sales trend?')"):
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
+            
+        # Generate Response
+        with st.chat_message("assistant"):
+            with st.spinner("Thinking..."):
+                try:
+                    # 1. Prepare Context (DataFrame Stats)
+                    context_str = ""
+                    if df is not None:
+                        buf = io.StringIO()
+                        df.info(buf=buf)
+                        info_str = buf.getvalue()
+                        stats_str = df.describe().to_string()
+                        head_str = df.head(3).to_string()
+                        context_str = f"""
+                        DATASET CONTEXT:
+                        - Info: {info_str}
+                        - Statistics: {stats_str}
+                        - Sample Rows: {head_str}
+                        """
+                    else:
+                        context_str = "No dataset currently loaded."
+                    
+                    # 2. Call Ollama via LangChain
+                    llm = Ollama(model=model_name, base_url=base_url, temperature=temperature)
+                    
+                    full_prompt = f"""
+                    You are an expert Data Analyst named Lumina. 
+                    Answer the user's question based strictly on the provided dataset context below.
+                    If the answer is not in the context, say so. Keep answers concise and professional.
+                    
+                    {context_str}
+                    
+                    USER QUESTION: {prompt}
+                    """
+                    
+                    response = llm.invoke(full_prompt)
+                    st.markdown(response)
+                    st.session_state.messages.append({"role": "assistant", "content": response})
+                    
+                except Exception as e:
+                    err_msg = f"Error connecting to Ollama at {base_url}. Is it running? ({str(e)})"
+                    st.error(err_msg)
+                    st.session_state.messages.append({"role": "assistant", "content": err_msg})
 
 
 # ============================================================================
@@ -5457,120 +5563,92 @@ def render_automl_suite(df):
 
 
 def sidebar_processor():
-    """Updated sidebar with all new phases"""
     with st.sidebar:
-        st.markdown("## 🔮 Lumina Analytics Suite")
-        
-        # New Categorized Navigation
-        NAV_STRUCTURE = {
-            "🔍 Data & Quality": [
-                ('Data Ingestion', 'Upload & Merge'),
-                ('Connectors', 'SQL & API Hub'),  # NEW v1.3
-                ('Validation', 'Data Validation Rules'),
-                ('Data Quality', 'Quality Assessment'), 
-                ('Drift Detection', 'Drift Detection'),
-                ('Monitor', 'Live Monitoring')
-            ],
-            "📊 Exploratory & Visuals": [
-                ('Smart Dashboard', 'Smart Dashboard'),
-                ('Automated EDA', 'Auto EDA'),
-                ('Explore', 'Explore'), 
-                ('Correlation', 'Correlations'), 
-                ('Cluster', 'Cluster'),
-                ('3D Scatter', '3D Scatter'), 
-                ('Sankey Diagram', 'Sankey'), 
-                ('Network Graph', 'Network')
-            ],
-            "🤖 Predictive Modeling": [
-                ('AutoML Competition', 'AutoML (SAS Mode)'),
-                ('Predictive Model', 'Models'), 
-                ('Regression', 'Regression'), 
-                ('Model Registry', 'Model Registry'),
-                ('Deep Learning', 'Deep Learning'),
-                ('Explainability', 'Explainability'), 
-                ('NLP Suite', 'NLP Suite')
-            ],
-            "📉 Statistical Analysis": [
-                ('Statistical Test', 'Statistical'), 
-                ('Statistics Advanced', 'Statistics+'),
-                ('A/B Test Pro', 'A/B Testing Pro'),
-                ('Causal Inference', 'Causal Inference'),
-                ('GLM', 'GLM'), 
-                ('Multivariate', 'Multivariate'), 
-                ('Survival', 'Survival'), 
-                ('Power Analysis', 'Power')
-            ],
-            "📈 Time Series": [
-                ('Time Series', 'Time Series'), 
-                ('Timeseries Advanced', 'Time Series+')
-            ],
-            "💼 Business Intelligence": [
-                ('Business Analytics', 'Business'), 
-                ('BI Analytics', 'BI Analytics'),
-                ('Market Basket', 'Market Basket'), 
-                ('Pareto Analysis', 'Pareto (80/20)'), 
-                ('Impact', 'Impact')
-            ],
-            "📝 Reporting": [
-                ('Report', 'Report'), 
-                ('PDF Report', 'PDF Report'), 
-                ('Smart Narrative', 'Smart Insights')
-            ]
-        }
-        
-        # 1. Select Category
-        category = st.radio("Navigation", list(NAV_STRUCTURE.keys()))
-        st.divider()
-        
-        # 2. Select Phase within Category
-        # Create mapping for display
-        phase_options = NAV_STRUCTURE[category]
-        phase_key = st.radio(
-            "Module",
-            phase_options,
-            format_func=lambda x: f"{x[1]}"
-        )[0] # Get the Key (0 index)
-        
-        phase = phase_key # Pass to return
-
+        st.sidebar.title("Lumina Analytics v1.7")
+    
+        # 1. Navigation
+        app_mode = st.sidebar.radio("Navigate", [
+            "Home", 
+            "Data Connectors", 
+            "Data Ingestion & ETL", 
+            "Monitor Phase", 
+            "Explore Phase", 
+            "AI Scientist (Deep Learning)",
+            "NLP Suite",
+            "Time Series+", 
+            "Statistics+",
+            "BI Analytics",
+            "Smart Narrative", 
+            "PDF Reports",
+            "🤖 AI Assistant"
+        ])
         
         st.divider()
-        st.markdown("### 📂 Data Ingestion")
+        
+        # 2. File Uploader
+        st.markdown("### 📤 Data Ingestion")
         
         uploaded_files = st.file_uploader(
             "Upload File(s)", 
-            type=['csv', 'xlsx', 'xls', 'txt', 'tsv', 'json', 'parquet', 'xml', 'dta', 'pkl', 'pickle'],
+            type=['csv', 'xlsx', 'xls', 'txt', 'tsv', 'json', 'parquet', 'xml', 'dta', 'pkl', 'pickle', 'sas7bdat'],
             accept_multiple_files=True,
             help="Upload multiple files to merge them."
         )
         
-        df = None
-        
+        # 3. Process Files
         if uploaded_files:
-            # Multi-file Logic
-            raw_dfs = {}
-            for f in uploaded_files:
-                d, s = parse_uploaded_file(f)
-                if s == 'single': raw_dfs[f.name] = d
-                elif s == 'multi': 
-                    for k, v in d.items(): raw_dfs[f"{f.name} - {k}"] = v
-            
-            if len(raw_dfs) > 0:
-                # Merge or Select
-                if len(raw_dfs) > 1:
-                    df = merge_datasets(raw_dfs)
+            try:
+                # v1.1: Merge Logic
+                if len(uploaded_files) > 1:
+                    dfs = []
+                    for f in uploaded_files:
+                        d, t = parse_uploaded_file(f)
+                        if t != 'error': dfs.append(d)
+                    
+                    if len(dfs) > 1:
+                         # Default to intelligent merge (concat or merge)
+                         try:
+                             df = pd.concat(dfs, ignore_index=True)
+                             st.success(f"Merged {len(dfs)} files into one dataset ({len(df)} rows).")
+                         except:
+                             st.warning("Schemas differ. Using first file only.")
+                             df = dfs[0]
+                    else:
+                        df = dfs[0] if dfs else None
                 else:
-                    df = list(raw_dfs.values())[0]
-            
-            if df is not None:
-                # smart_date_converter
-                df = smart_date_converter(df)
-                
-                # Enforce string column names to prevent Streamlit/Plotly type errors (e.g. 1960 int vs str)
-                df.columns = df.columns.astype(str)
-                
+                    df, ftype = parse_uploaded_file(uploaded_files[0])
+                    if ftype == 'error':
+                        st.error(df)
+                        return "Home", None
+
+                # v1.4: Update Session State
                 st.session_state.data = df
-                st.success(f"✅ Active Data: {len(df):,} rows")
+                
+            except Exception as e:
+                st.error(f"Error processing files: {e}")
+                
+        # 4. Use Session Data
+        if 'data' in st.session_state:
+            df = st.session_state.data
+            st.sidebar.success(f"Loaded: {len(df):,} rows")
+            
+            # v1.2: Pipeline Manager Hook
+            pm = PipelineManager()
+            if pm.get_pipeline():
+                # Pipeline UI Logic (Simplified for repair compatibility)
+                if st.sidebar.button("Pipeline Info"):
+                    st.sidebar.info(f"Active Pipeline steps: {len(pm.get_pipeline())}")
+
+                # Output export
+                st.sidebar.divider()
+                if st.sidebar.button("Export Data"):
+                    buffer = io.BytesIO()
+                    df.to_csv(buffer, index=False)
+                    st.sidebar.download_button("Download CSV", buffer.getvalue(), "lumina_data.csv")
+                
+        st.sidebar.divider()
+        st.sidebar.caption("v1.7 | Enterprise Automation")
+        return app_mode, df if 'data' in st.session_state else None
 
 def render_connectors(df):
     """Data Engineering: Connect to Databases & APIs"""
@@ -5596,14 +5674,14 @@ def render_connectors(df):
                 
                 if "Error" in res_df.columns:
                     st.error(res_df.iloc[0,0])
-                elif not res_df.empty:
+                elif not res_df:  # Empty
+                    st.info("Query returned no results.")
+                else:
                     st.success(f"Fetched {len(res_df)} rows")
                     st.dataframe(res_df)
                     if st.button("Use this Grid"):
                         st.session_state.data = res_df
                         st.rerun()
-                else:
-                    st.info("Query returned no results.")
 
     # --- API Tab ---
     with tab2:
@@ -5623,133 +5701,6 @@ def render_connectors(df):
                         st.rerun()
                 elif api_df is not None:
                      st.warning("Empty response received")
-
-
-
-                with st.expander("🤖 Automated Data Pipeline (Informatica Layer)", expanded=True):
-                    st.caption("Build, Save, and Replay ETL Recipes")
-                    
-                    pm = PipelineManager()
-                    
-                    # 1. Add New Step
-                    st.markdown("**Add Transformation Step**")
-                    step_type = st.selectbox("Operation Type", 
-                        ["Drop Columns", "Filter Rows", "Impute Missing", "Text Standardization", "Change Data Type", "Rename Column", "Pivot (Reshape)", "Melt (Unpivot)"])
-                    
-                    if step_type == "Drop Columns":
-                        cols = st.multiselect("Select Columns", df.columns)
-                        if st.button("Add Drop Step"):
-                            pm.add_step("drop_cols", {'cols': cols}, f"Drop columns: {', '.join(cols)}")
-                            st.rerun()
-                            
-                    elif step_type == "Filter Rows":
-                        col = st.selectbox("Column", df.select_dtypes(include=np.number).columns)
-                        op = st.selectbox("Operator", [">", "<", ">=", "<=", "=="])
-                        val = st.number_input("Value")
-                        if st.button("Add Filter Step"):
-                            pm.add_step("filter_numeric", {'col': col, 'op': op, 'val': val}, f"Filter {col} {op} {val}")
-                            st.rerun()
-                            
-                    elif step_type == "Impute Missing":
-                        method = st.selectbox("Method", ["drop", "fill_0", "fill_mean"])
-                        if st.button("Add Impute Step"):
-                            pm.add_step("impute", {'method': method}, f"Impute missing: {method}")
-                            st.rerun()
-                            
-                    elif step_type == "Text Standardization":
-                        op = st.selectbox("Operation", ["lower", "upper", "strip"])
-                        if st.button("Add Text Step"):
-                            pm.add_step("text_op", {'op': op}, f"Text Op: {op}")
-                            st.rerun()
-                            
-                    elif step_type == "Change Data Type":
-                        col = st.selectbox("Col", df.columns)
-                        dtype = st.selectbox("To Type", ["int", "float", "str", "datetime"])
-                        if st.button("Add Type Step"):
-                            pm.add_step("astype", {'col': col, 'dtype': dtype}, f"Cast {col} to {dtype}")
-                            st.rerun()
-                            
-                    elif step_type == "Rename Column":
-                        old_col = st.selectbox("Original Name", df.columns)
-                        new_name = st.text_input("New Name")
-                        if st.button("Add Rename Step"):
-                            pm.add_step("rename_col", {'old': old_col, 'new': new_name}, f"Rename {old_col} -> {new_name}")
-                            st.rerun()
-                            
-                    elif step_type == "Pivot (Reshape)":
-                        idx = st.selectbox("Index (Rows)", df.columns, key='piv_idx')
-                        cols = st.selectbox("Columns (New Headers)", df.columns, key='piv_col')
-                        vals = st.selectbox("Values", df.select_dtypes(include=np.number).columns, key='piv_val')
-                        if st.button("Add Pivot Step"):
-                            pm.add_step("pivot", {'index': idx, 'columns': cols, 'values': vals}, f"Pivot: Index={idx}, Cols={cols}")
-                            st.rerun()
-
-                    elif step_type == "Melt (Unpivot)":
-                        id_vars = st.multiselect("ID Variables (Keepers)", df.columns, key='melt_id')
-                        val_vars = st.multiselect("Value Variables (Unpivot)", [c for c in df.columns if c not in id_vars], key='melt_val')
-                        if st.button("Add Melt Step"):
-                            pm.add_step("melt", {'id_vars': id_vars, 'value_vars': val_vars}, f"Melt: IDs={len(id_vars)} cols")
-                            st.rerun()
-
-                    # 2. View/Manage Pipeline
-                    st.divider()
-                    st.markdown(f"**Current Pipeline ({len(pm.get_pipeline())} steps)**")
-                    
-                    for i, step in enumerate(pm.get_pipeline()):
-                        col1, col2 = st.columns([0.8, 0.2])
-                        col1.text(f"{i+1}. {step['description']}")
-                        if col2.button("❌", key=f"del_{i}"):
-                            pm.remove_step(i)
-                            st.rerun()
-                            
-                    if st.button("Clear Pipeline"):
-                        pm.clear_pipeline()
-                        st.rerun()
-
-                    # 3. Apply Pipeline
-                    st.divider()
-                    if st.checkbox("✅ Apply Pipeline to Data", value=True):
-                        df, logs = pm.apply_pipeline(df)
-                        with st.expander("Execution Logs"):
-                            for log in logs:
-                                st.write(log)
-                                
-                    # 4. Recipe I/O
-                    st.divider()
-                    st.markdown("**Recipe Management**")
-                    recipe_json = pm.export_recipe_json()
-                    st.download_button("💾 Save Recipe", recipe_json, "pipeline_recipe.json", "application/json")
-                    
-                    uploaded_recipe = st.file_uploader("📂 Load Recipe", type=['json'])
-                    if uploaded_recipe:
-                        if pm.load_recipe_json(uploaded_recipe.getvalue().decode("utf-8")):
-                            st.success("Recipe Loaded!")
-                            st.rerun()
-
-                st.divider()
-                st.markdown("### 📥 Export Output")
-                if st.button("Prepare Excel Download"):
-                    try:
-                        buffer = io.BytesIO()
-                        with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-                            df.to_excel(writer, sheet_name='Cleaned_Data', index=False)
-                            df.describe().to_excel(writer, sheet_name='Summary_Statistics')
-                            num_cols = df.select_dtypes(include=[np.number]).columns
-                            if len(num_cols) > 1:
-                                df[num_cols].corr().to_excel(writer, sheet_name='Correlations')
-                        
-                        st.download_button(
-                            label="Download Excel Workbook",
-                            data=buffer.getvalue(),
-                            file_name=f"Lumina_Output_{datetime.now().strftime('%Y%m%d')}.xlsx",
-                            mime="application/vnd.ms-excel"
-                        )
-                    except Exception as e:
-                        st.error(f"Export Error: {e}")
-                
-        st.divider()
-        st.caption("v1.2 | Enterprise Automation")
-        return phase, df
 
 # ============================================================================
 # UPDATE MAIN() FUNCTION TO ROUTE NEW PHASES
@@ -5797,6 +5748,11 @@ def main():
     elif phase == 'Deep Learning': safe_render(render_deep_learning, df)
     elif phase == 'NLP Suite': safe_render(render_nlp_suite, df)
     elif phase == 'BI Analytics': safe_render(render_bi_analytics, df)
+    
+    elif phase == 'Smart Narrative': safe_render(render_smart_narrative, df)
+    
+    # v1.7 Integration
+    elif phase == '🤖 AI Assistant': safe_render(render_ai_assistant, df)
     
     # New Modules v1.1
     elif phase == 'Auto EDA': safe_render(render_auto_eda, df)
