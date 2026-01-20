@@ -5707,7 +5707,7 @@ def render_automl_suite(df):
 def sidebar_processor():
     """
     Manages the sidebar navigation and simple global inputs.
-    Returns the selected 'app_mode' (str).
+    Returns: (app_mode, df)
     """
     with st.sidebar:
         st.markdown("## 🧭 Navigation")
@@ -5738,6 +5738,8 @@ def sidebar_processor():
             accept_multiple_files=True,
             help="Upload multiple files to merge them."
         )
+        
+        df = None
         
         # 3. Process Files
         if uploaded_files:
@@ -5791,7 +5793,7 @@ def sidebar_processor():
                     st.sidebar.download_button("Download CSV", buffer.getvalue(), "lumina_data.csv")
                 
         st.sidebar.divider()
-        st.sidebar.caption("v1.7 | Enterprise Automation")
+        st.sidebar.caption("v2.0 | Enterprise Automation")
         return app_mode, df if 'data' in st.session_state else None
 
 def render_connectors(df):
