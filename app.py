@@ -262,6 +262,12 @@ try:
 except ImportError:
     OLLAMA_AVAILABLE = False
 
+try:
+    from langchain_openai import ChatOpenAI, AzureChatOpenAI
+    OPENAI_AVAILABLE = True
+except ImportError:
+    OPENAI_AVAILABLE = False
+
 # Global Config
 st.set_page_config(
     page_title="Lumina Analytics v1.7",
@@ -2898,79 +2904,118 @@ def render_smart_narrative(df):
 def render_ai_assistant(df):
     st.markdown("""
         <div class="phase-container">
-            <div class="phase-title">🤖 AI Assistant (Lumina Chat)</div>
-            <div class="phase-subtitle">Talk to your Data (Powered by Ollama + LangChain)</div>
+            <div class="phase-title">🤖 AI Assistant (Hybrid Cloud)</div>
+            <div class="phase-subtitle">Secure Analytics: Local (Ollama) or Enterprise (Azure/OpenAI)</div>
         </div>
     """, unsafe_allow_html=True)
     
-    if not OLLAMA_AVAILABLE:
-        st.error("Ollama or LangChain libraries not installed. Please install `ollama` and `langchain`.")
-        st.info("Ensure Ollama is running locally: `ollama run llama3`")
-        return
+    # 1. Hybrid Provider Toggle
+    with st.sidebar.expander("⚙️ AI Configuration", expanded=True):
+        provider_mode = st.radio("Select Infrastructure", ["🤖 Local (Privacy)", "☁️ Enterprise Cloud"])
+        
+        llm = None
+        
+        if provider_mode == "🤖 Local (Privacy)":
+            if not OLLAMA_AVAILABLE:
+                st.error("Ollama library not found.")
+            else:
+                model_name = st.text_input("Ollama Model", "llama3")
+                base_url = st.text_input("Host", "http://localhost:11434")
+                if st.button("Initialize Local AI"):
+                    llm = Ollama(model=model_name, base_url=base_url, temperature=0.1)
+                    st.session_state.active_llm = llm
+                    st.success("Connected to Local AI")
+                    
+        else: # Cloud Mode
+            if not OPENAI_AVAILABLE:
+                st.error("LangChain OpenAI library not found. Install `langchain-openai`.")
+            else:
+                cloud_provider = st.radio("Provider", ["Azure OpenAI (HIPAA)", "OpenAI Standard"])
+                api_key = st.text_input("API Key", type="password")
+                
+                if cloud_provider == "Azure OpenAI (HIPAA)":
+                    st.caption("✅ HIPAA Compliant (with BAA)")
+                    azure_endpoint = st.text_input("Endpoint", "https://your-resource.openai.azure.com/")
+                    deployment_name = st.text_input("Deployment Name")
+                    api_version = st.text_input("API Version", "2023-05-15")
+                    
+                    if st.button("Initialize Azure AI"):
+                        if api_key and azure_endpoint:
+                            llm = AzureChatOpenAI(
+                                azure_deployment=deployment_name,
+                                openai_api_version=api_version,
+                                azure_endpoint=azure_endpoint,
+                                api_key=api_key,
+                                temperature=0
+                            )
+                            st.session_state.active_llm = llm
+                            st.success("Connected to Azure AI")
+                        else:
+                            st.warning("Missing Credentials")
+                            
+                else: # OpenAI Standard
+                    model = st.text_input("Model", "gpt-4o")
+                    if st.button("Initialize OpenAI"):
+                        if api_key:
+                            llm = ChatOpenAI(model=model, api_key=api_key, temperature=0)
+                            st.session_state.active_llm = llm
+                            st.success("Connected to OpenAI")
+                        else:
+                            st.warning("Enter API Key")
 
-    # Sidebar Config
-    with st.sidebar.expander("⚙️ LLM Settings", expanded=True):
-        model_name = st.text_input("Ollama Model", "llama3")
-        base_url = st.text_input("Ollama Host", "http://localhost:11434")
-        temperature = st.slider("Temperature", 0.0, 1.0, 0.1)
-    
-    # Initialize Chat History
+    # 2. Chat Interface
     if "messages" not in st.session_state:
-        st.session_state.messages = [{"role": "assistant", "content": "Hello! I am Lumina. Ask me anything about your dataset."}]
+        st.session_state.messages = [{"role": "assistant", "content": "Hello! I am Lumina. Connect an AI provider to start."}]
 
-    # Display Chat
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
             
-    # Chat Input
-    if prompt := st.chat_input("Ask a question (e.g., 'What is the average sales trend?')"):
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
-            
-        # Generate Response
-        with st.chat_message("assistant"):
-            with st.spinner("Thinking..."):
-                try:
-                    # 1. Prepare Context (DataFrame Stats)
-                    context_str = ""
-                    if df is not None:
-                        buf = io.StringIO()
-                        df.info(buf=buf)
-                        info_str = buf.getvalue()
-                        stats_str = df.describe().to_string()
-                        head_str = df.head(3).to_string()
-                        context_str = f"""
-                        DATASET CONTEXT:
-                        - Info: {info_str}
-                        - Statistics: {stats_str}
-                        - Sample Rows: {head_str}
+    if prompt := st.chat_input("Ask about your data..."):
+        if 'active_llm' not in st.session_state or st.session_state.active_llm is None:
+            st.error("Please Initialize an AI Provider in the sidebar first.")
+        else:
+            st.session_state.messages.append({"role": "user", "content": prompt})
+            with st.chat_message("user"):
+                st.markdown(prompt)
+                
+            with st.chat_message("assistant"):
+                with st.spinner("Analyzing..."):
+                    try:
+                        # Context Prep
+                        context_str = ""
+                        if df is not None:
+                            buf = io.StringIO()
+                            df.info(buf=buf)
+                            context_str = f"""
+                            DATA SCHEME:
+                            {buf.getvalue()}
+                            STATS:
+                            {df.describe().to_string()}
+                            SAMPLE:
+                            {df.head(3).to_string()}
+                            """
+                        else:
+                            context_str = "No dataframe loaded."
+                            
+                        # Prompt
+                        full_prompt = f"""
+                        You are Lumina, a secure Data Analyst.
+                        Context: {context_str}
+                        Question: {prompt}
+                        Answer concisely. available tools: None.
                         """
-                    else:
-                        context_str = "No dataset currently loaded."
-                    
-                    # 2. Call Ollama via LangChain
-                    llm = Ollama(model=model_name, base_url=base_url, temperature=temperature)
-                    
-                    full_prompt = f"""
-                    You are an expert Data Analyst named Lumina. 
-                    Answer the user's question based strictly on the provided dataset context below.
-                    If the answer is not in the context, say so. Keep answers concise and professional.
-                    
-                    {context_str}
-                    
-                    USER QUESTION: {prompt}
-                    """
-                    
-                    response = llm.invoke(full_prompt)
-                    st.markdown(response)
-                    st.session_state.messages.append({"role": "assistant", "content": response})
-                    
-                except Exception as e:
-                    err_msg = f"Error connecting to Ollama at {base_url}. Is it running? ({str(e)})"
-                    st.error(err_msg)
-                    st.session_state.messages.append({"role": "assistant", "content": err_msg})
+                        
+                        # Invoke (Universal for Ollama/OpenAI/Azure)
+                        response = st.session_state.active_llm.invoke(full_prompt)
+                        # Handle varied response types (String vs AIMessage)
+                        res_text = response.content if hasattr(response, 'content') else str(response)
+                        
+                        st.markdown(res_text)
+                        st.session_state.messages.append({"role": "assistant", "content": res_text})
+                        
+                    except Exception as e:
+                        st.error(f"AI Error: {e}")
 
 
 # ============================================================================
