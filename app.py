@@ -3497,51 +3497,60 @@ def render_bi_analytics(df):
 
 # Update the sidebar phase selection to include new phases:
 
-PHASE_ICONS = {
-                'Monitor':'🔍 Monitor',
-                'Explore':'📊 Explore',
-                'Cluster':'🧠 Cluster',
-                'Time Series':'📈 Time Series',
-                'Statistical Test':'📉 Statistical',
-                'Regression':'🔧 Regression',
-                'Impact':'🎯 Impact',
-                'Report':'📝 Report',
-                'Data Quality':'🏥 Data Quality',
-                'Anomaly Detection':'🔎 Anomalies',
-                'Feature Eng':'⚙️ Features',
-                'Correlation':'📊 Correlations',
-                'Predictive Model':'🤖 Models',
-                'Business Analytics':'💼 Business',
-                'Pareto Analysis':'📉 Pareto (80/20)',
-                'Market Basket':'🛒 Market Basket',
-                'Smart Narrative':'🧠 Smart Insights',
-                'GLM':'📈 GLM',
-                'Multivariate':'🕸️ Multivariate',
-                'Survival':'⏳ Survival',
-                'Power Analysis':'🔋 Power',
-                # Advanced Analytics 2.0
-                '3D Scatter': '🌐 3D Scatter',
-                'Sankey Diagram': '🔀 Sankey',
-                'Network Graph': '🕸️ Network',
-                'PDF Report': '📄 PDF Report',
-                'Explainability': '🔍 Explainability',
-                'Timeseries Advanced': '📈 Time Series+',
-                'Statistics Advanced': '🧪 Statistics+',
-                'Deep Learning': '🧠 Deep Learning',
-                'NLP Suite': '📝 NLP Suite',
-                'BI Analytics': '💼 BI Analytics'
-            }
+
 
 def sidebar_processor():
     """Updated sidebar with all new phases"""
     with st.sidebar:
         st.markdown("## 🔮 Lumina Analytics Suite")
         
-        phase = st.radio(
-            "Workflow",
-            list(PHASE_ICONS.keys()),
-            format_func=lambda x: PHASE_ICONS[x]
-        )
+        # New Categorized Navigation
+        NAV_STRUCTURE = {
+            "🔍 Data & Quality": [
+                ('Monitor', 'Monitor'), ('Data Quality', 'Data Quality'), 
+                ('Anomaly Detection', 'Anomalies'), ('Feature Eng', 'Features')
+            ],
+            "📊 Exploratory & Visuals": [
+                ('Explore', 'Explore'), ('Correlation', 'Correlations'), ('Cluster', 'Cluster'),
+                ('3D Scatter', '3D Scatter'), ('Sankey Diagram', 'Sankey'), ('Network Graph', 'Network')
+            ],
+            "🤖 Predictive Modeling": [
+                ('Predictive Model', 'Models'), ('Regression', 'Regression'), ('Deep Learning', 'Deep Learning'),
+                ('Explainability', 'Explainability'), ('NLP Suite', 'NLP Suite')
+            ],
+            "📉 Statistical Analysis": [
+                ('Statistical Test', 'Statistical'), ('Statistics Advanced', 'Statistics+'),
+                ('GLM', 'GLM'), ('Multivariate', 'Multivariate'), ('Survival', 'Survival'), 
+                ('Power Analysis', 'Power')
+            ],
+            "📈 Time Series": [
+                ('Time Series', 'Time Series'), ('Timeseries Advanced', 'Time Series+')
+            ],
+            "💼 Business Intelligence": [
+                ('Business Analytics', 'Business'), ('BI Analytics', 'BI Analytics'),
+                ('Market Basket', 'Market Basket'), ('Pareto Analysis', 'Pareto (80/20)'), 
+                ('Impact', 'Impact')
+            ],
+            "📝 Reporting": [
+                ('Report', 'Report'), ('PDF Report', 'PDF Report'), ('Smart Narrative', 'Smart Insights')
+            ]
+        }
+        
+        # 1. Select Category
+        category = st.radio("Navigation", list(NAV_STRUCTURE.keys()))
+        st.divider()
+        
+        # 2. Select Phase within Category
+        # Create mapping for display
+        phase_options = NAV_STRUCTURE[category]
+        phase_key = st.radio(
+            "Module",
+            phase_options,
+            format_func=lambda x: f"{x[1]}"
+        )[0] # Get the Key (0 index)
+        
+        phase = phase_key # Pass to return
+
         
         st.divider()
         st.markdown("### 📂 Data Ingestion")
