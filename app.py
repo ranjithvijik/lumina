@@ -5090,27 +5090,63 @@ def render_auto_eda(df):
 # ============================================================================
 
 def render_smart_dashboard(df):
-    """Auto-Generated BI Dashboard (Tableau Logic)"""
     st.markdown("""
         <div class="phase-container">
-            <div class="phase-title">📊 Smart Dashboard</div>
-            <div class="phase-subtitle">Intelligent Auto-Generated Visualizations</div>
+            <div class="phase-title">📊 Interactive Smart Dashboard (v1.5)</div>
+            <div class="phase-subtitle">Self-Service BI & Drill-Downs</div>
         </div>
     """, unsafe_allow_html=True)
+    
+    if df is None: return
+
+    # --- SIDEBAR: CALCULATED FIELDS ---
+    with st.sidebar.expander("➕ Calculated Fields", expanded=False):
+        st.caption("Create Custom Metrics")
+        new_col_name = st.text_input("New Column Name", "Revenue")
+        col_a = st.selectbox("Column A", df.select_dtypes(include=np.number).columns, key='calc_a')
+        op = st.selectbox("Operator", ["+", "-", "*", "/"], key='calc_op')
+        col_b = st.selectbox("Column B", df.select_dtypes(include=np.number).columns, key='calc_b')
+        
+        if st.button("Create Field"):
+            try:
+                if op == "+": df[new_col_name] = df[col_a] + df[col_b]
+                elif op == "-": df[new_col_name] = df[col_a] - df[col_b]
+                elif op == "*": df[new_col_name] = df[col_a] * df[col_b]
+                elif op == "/": df[new_col_name] = df[col_a] / df[col_b]
+                st.success(f"Created {new_col_name}!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Calculation Error: {e}")
+
+    # --- SIDEBAR: GLOBAL FILTERS ---
+    st.sidebar.subheader("🔍 Global Cross-Filters")
+    df_filtered = df.copy()
+    
+    # Auto-generate filters for top 3 categories and 3 numerics to avoid clutter
+    cat_cols = df.select_dtypes(include=['object', 'category']).columns[:3]
+    num_cols = df.select_dtypes(include=np.number).columns[:3]
+    
+    for c in cat_cols:
+        vals = st.sidebar.multiselect(f"Filter {c}", df[c].unique(), default=df[c].unique())
+        df_filtered = df_filtered[df_filtered[c].isin(vals)]
+        
+    for n in num_cols:
+        min_v, max_v = float(df[n].min()), float(df[n].max())
+        if min_v != max_v:
+            r = st.sidebar.slider(f"Range {n}", min_v, max_v, (min_v, max_v))
+            df_filtered = df_filtered[(df_filtered[n] >= r[0]) & (df_filtered[n] <= r[1])]
+
+    # Use filtered data for dashboard
+    df = df_filtered
+    st.info(f"Showing {len(df):,} rows based on filters.")
+    
+    # ... (Rest of existing chart logic)
     
     if df is None:
         st.info("Please upload data to begin.")
         return
         
     num_cols, cat_cols, date_cols = get_column_types(df)
-    
-    # Global Filters
-    with st.expander("🔎 Dashboard Filters"):
-        if cat_cols:
-            filter_col = st.selectbox("Filter By", ["None"] + cat_cols)
-            if filter_col != "None":
-                filter_val = st.multiselect(f"Select {filter_col}", df[filter_col].unique(), default=df[filter_col].unique())
-                df = df[df[filter_col].isin(filter_val)]
     
     # Top Row: KPIs
     st.markdown("### 📈 Key Performance Indicators")
