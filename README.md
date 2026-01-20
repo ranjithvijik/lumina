@@ -12,50 +12,80 @@
 
 ---
 
-## ✨ Features: Advanced Analytics 2.0
+## 📊 Core Analytics Features
 
-Lumina has been upgraded with **6 Professional Suites**, replacing disparate modules with cohesive, task-oriented workflows.
+Lumina provides a robust foundation for everyday data tasks.
+
+### 🔍 Data Monitor & Quality
+*   **Data Health Check**: Automatically detect missing values, duplicates, and inconsistent types.
+*   **Outlier Detection**: Statistical flagging of anomalies.
+*   **Type Inference**: Smart detection of Categorical vs Numerical vs DateTime columns.
+
+### 📈 Exploratory Data Analysis (EDA)
+*   **Interactive Visuals**: Drag-and-drop plotting (Scatter, Line, Bar, Histograms).
+*   **Correlation Matrix**: Heatmaps to identify feature relationships.
+*   **Distribution Analysis**: Skewness and Kurtosis checks.
+
+### 🤖 Predictive Modeling (Classic ML)
+*   **Regression**: Linear, Ridge, Lasso, and ElasticNet.
+*   **Classification**: Logistic Regression, Random Forest, and XGBoost.
+*   **Model Comparison**: Automated leaderboard of model performance (Accuracy, R², etc.).
+*   **Confusion Matrices**: Visual performance evaluation.
+
+---
+
+## ✨ Advanced Analytics 2.0 (New!)
+
+Upgrade your insights with 6 research-grade professional suites.
 
 ### 1. 🧠 Explainability Suite
-*Demystify your "Black Box" models models.*
+*Demystify "Black Box" models.*
 *   **SHAP Analysis**: Global feature importance and individual prediction explanations (Waterfall plots).
 *   **LIME**: Local interpretable model-agnostic explanations.
 *   **Partial Dependence Plots (PDP)**: Visualize how specific features drive predictions.
-*   **Feature Interactions**: 2D interaction maps.
 
 ### 2. 🤖 Deep Learning Suite
-*Accessible Neural Networks for everyone.*
-*   **Neural Network Builder**: Configure MLP Architectures (Layers, Activation: ReLU/Tanh, Solvers).
-*   **Training & Visuals**: Real-time Loss Curve visualization and R²/Accuracy metrics.
-*   **AutoML Integration**: (Optional) Automated hyperparameter tuning.
+*Accessible Neural Networks.*
+*   **Neural Network Builder**: Configure MLP Architectures (Layers, Activations).
+*   **Real-time Training**: Watch Loss/Accuracy curves converge in real-time.
+*   **AutoML**: Optional automated hyperparameter tuning.
 
 ### 3. 📝 NLP Suite
 *Unlocking insights from text.*
 *   **Topic Modeling (LDA)**: Uncover hidden themes in document collections.
-*   **Sentiment Analysis**: Time-series sentiment tracking and polarity scoring.
+*   **Sentiment Analysis**: Time-series sentiment tracking.
 *   **Named Entity Recognition (NER)**: Extract people, organizations, and locations.
-*   **Word Clouds**: Dynamic, visually stunning text summarization.
+*   **Word Clouds**: Dynamic text summarization.
 
 ### 4. 📈 Advanced Time Series
 *Forecasting the future.*
-*   **Facebook Prophet**: Robust forecasting for business time series (with seasonality).
+*   **Facebook Prophet**: Robust forecasting with seasonality support.
 *   **ARIMA**: Classic statistical forecasting.
 *   **Decomposition**: Trend, Seasonality, and Residual breakdown.
-*   **Monte Carlo Simulation**: Stochastic forecasting for risk assessment.
+*   **Monte Carlo Simulation**: Stochastic risk assessment.
 
-### 5. 📉 Advanced Statistics
-*Research-grade statistical rigor.*
-*   **Post-Hoc Testing**: Tukey's HSD for ANOVA follow-ups.
-*   **Repeated Measures ANOVA**: For longitudinal studies.
+### 5. 📉 Advanced Statistics & Research
+*Dissertation-level rigor.*
+*   **Post-Hoc Testing**: Tukey's HSD for ANOVA.
 *   **Mixed Effects Models**: Hierarchical linear modeling.
-*   **Bayesian A/B Testing**: Probabilistic conversion rate comparison.
+*   **Survival Analysis**: Kaplan-Meier Estimators and Log-Rank Tests.
+*   **Multivariate Analysis**: MANOVA and Principal Component Analysis (PCA).
 
 ### 6. 💼 Business Intelligence (BI)
 *Metrics that matter.*
-*   **CLV (Customer Lifetime Value)**: Predict future customer value using **Lifetimes** (BG/NBD & Gamma-Gamma).
-*   **Churn Prediction**: Random Forest-based risk scoring.
-*   **Retention Heatmaps**: Cohort analysis for user retention.
-*   **Price Elasticity**: Log-log regression models to optimize pricing.
+*   **CLV (Customer Lifetime Value)**: Predictive BG/NBD models.
+*   **Churn Prediction**: Risk scoring pipelines.
+*   **Retention Heatmaps**: Cohort analysis.
+*   **Price Elasticity**: Econometric modeling.
+
+---
+
+## 🏭 Enterprise Features
+
+*   **Smart Narrative Engine**: Auto-generates text summaries of your data findings using NLP.
+*   **Report Generation**: Export full analysis as **Microsoft Word (.docx)** or **PDF** reports.
+*   **A/B Test Simulator**: Bayesian "Impact Phase" for simulating intervention outcomes.
+*   **Security**: Local-first processing (data never leaves your machine).
 
 ---
 
@@ -89,23 +119,20 @@ Lumina has been upgraded with **6 Professional Suites**, replacing disparate mod
 ## 🛠️ Usage Workflow
 
 1.  **Upload Data**: Drag & Drop CSV, Excel, JSON, or Parquet files.
-2.  **Monitor & Clean**: Use the **Data Quality** phase to inspect missing values and outliers.
-3.  **Choose a Suite**: Correctly navigate via the sidebar to your desired analysis (e.g., "Explainability").
-4.  **Configure & Run**:
-    *   Select your **Target** (y) and **Features** (X).
-    *   Adjust parameters (epochs, layers, forecast horizon).
-    *   Click "Run" to generate interactive Plotly visualizations.
-5.  **Export**: Download charts as PNG or full reports as Word Docs.
+2.  **Monitor**: Inspect data quality and fix issues.
+3.  **Choose a Phase**: use the Sidebar to navigate between Core EDA, Predictive Modeling, or Advanced Suites.
+4.  **Configure & Run**: Select variables, tune parameters, and visualize.
+5.  **Export**: Generate a "Smart Report" or download charts.
 
 ---
 
 ## 🧪 Testing & Reliability
 
-Lumina is strictly tested to ensure stability for enterprise use cases.
+Lumina is strictly tested to ensure stability.
 
-*   **Unit Tests**: Validate statistical formulas and data cleaning utilities.
-*   **Smoke Tests**: End-to-end verification of all 6 Analytics Suites.
-*   **Safety Wrappers**: The `safe_plot` and `safe_dataframe` utilities prevent UI crashes even with malformed data.
+*   **Unit Tests**: Validate statistical formulas and utilities.
+*   **Smoke Tests**: End-to-end verification of all Analytics Suites.
+*   **Safety Wrappers**: `safe_plot` and `safe_dataframe` prevent UI crashes.
 
 **Run the test suite:**
 ```bash
@@ -118,7 +145,7 @@ python3 tests/test_smoke_suites.py
 
 ## 🤝 Contributing
 
-We welcome contributions! Please see the `tests/` directory for guidance on adding new modules. Ensure all new features are accompanied by a smoke test in `test_smoke_suites.py`.
+We welcome contributions! Please see the `tests/` directory for guidance.
 
 ---
 
