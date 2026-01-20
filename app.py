@@ -1706,7 +1706,7 @@ def render_regression(df):
 
     # --- MULTIPLE REGRESSION WITH FORMULA ---
     elif model_type == "Multiple Regression":
-        formula = f"{target} ~ {' + '.join(features)}"
+        formula = f"{sanitize_col_name(target)} ~ {' + '.join([sanitize_col_name(f) for f in features])}"
         model = ols(formula, data=data_clean).fit()
         
         st.markdown("<div class='stat-summary'>", unsafe_allow_html=True)
@@ -1969,15 +1969,11 @@ def render_business_analytics(df):
                 # Calculate RFM
                 reference_date = pd.to_datetime(df[date_col]).max()
                 
-                rfm = df.groupby(id_col).agg({
-                    date_col: lambda x: (reference_date - pd.to_datetime(x).max()).days,
-                    id_col: 'count',
-                    amount_col: 'sum'
-                }).rename(columns={
-                    date_col: 'Recency',
-                    id_col: 'Frequency',
-                    amount_col: 'Monetary'
-                })
+                rfm = df.groupby(id_col).agg(
+                    Recency=(date_col, lambda x: (reference_date - pd.to_datetime(x).max()).days),
+                    Frequency=(date_col, 'count'),
+                    Monetary=(amount_col, 'sum')
+                ).reset_index()
                 
                 # Scoring
                 for col in ['Recency', 'Frequency', 'Monetary']:
@@ -2393,8 +2389,7 @@ def render_multivariate(df):
         if st.button("Run MANOVA"):
             try:
                 # Formula format: "dv1 + dv2 ~ group"
-                dv_str = " + ".join(dependents)
-                formula = f"{dv_str} ~ {group}"
+                formula = f"{' + '.join([sanitize_col_name(c) for c in dependents])} ~ {sanitize_col_name(group)}"
                 
                 manova = MANOVA.from_formula(formula, data=df)
                 st.write(manova.mv_test())
@@ -3013,6 +3008,7 @@ def render_advanced_timeseries(df):
             st.write("Forecast Components")
             fig2 = m.plot_components(forecast)
             st.pyplot(fig2)
+            plt.close(fig2)
         else:
             st.error("Prophet not installed.")
 
@@ -3106,6 +3102,7 @@ def render_advanced_stats(df):
                 st.text(tukey.summary())
                 fig = tukey.plot_simultaneous()
                 st.pyplot(fig)
+                plt.close(fig)
         else:
             st.warning("No categorical columns.")
 
