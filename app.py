@@ -32,10 +32,13 @@ from xgboost import XGBClassifier, XGBRegressor
 from sklearn.metrics import roc_auc_score, accuracy_score, r2_score, mean_squared_error, classification_report, confusion_matrix
 from sklearn.model_selection import train_test_split, RandomizedSearchCV, cross_val_score
 from sklearn.inspection import partial_dependence
+import matplotlib.pyplot as plt
+
 try:
     import shap
+    SHAP_AVAILABLE = True
 except ImportError:
-    shap = None
+    SHAP_AVAILABLE = False
 from statsmodels.tsa.seasonal import seasonal_decompose
 from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
 import seaborn as sns
@@ -471,6 +474,12 @@ def stat_box(title=None):
 
 import uuid
 
+def sanitize_col_name(name):
+    """Sanitize column names for Statsmodels formulas."""
+    if ' ' in name or not name.isidentifier():
+        return f"Q('{name}')"
+    return name
+
 def safe_dataframe(data, **kwargs):
     if data is None: return
     
@@ -487,12 +496,14 @@ def safe_dataframe(data, **kwargs):
     # Use the standard parameter that works across versions
     st.dataframe(df_disp, use_container_width=True, **kwargs)
 
-def safe_plot(fig, **kwargs):
+def safe_plot(fig, height=None, **kwargs):
     if fig is None: return
-    
+    # Remove potentially conflicting args if present
     kwargs.pop('use_container_width', None)
-    kwargs.pop('width', None)
     
+    if height:
+        fig.update_layout(height=height)
+        
     st.plotly_chart(fig, use_container_width=True, **kwargs)
 
 def get_column_types(df):
@@ -2894,13 +2905,20 @@ def render_explainability(df):
             
             st.write("**Waterfall Plot (First Sample)**")
             fig2, ax2 = plt.subplots()
-            # Create Explanation object for waterfall
+            
+            # Safe Waterfall Plot
+            base_val = explainer.expected_value
+            if is_classification and isinstance(base_val, list):
+                base_val = base_val[1]
+                
             shap_exp = shap.Explanation(values=shap_values[0], 
-                                        base_values=explainer.expected_value[1] if is_classification and isinstance(explainer.expected_value, list) else explainer.expected_value, 
-                                        data=X_sample.iloc[0], 
+                                        base_values=base_val, 
+                                        data=X_sample.iloc[0].values, 
                                         feature_names=features)
             shap.plots.waterfall(shap_exp, show=False)
             st.pyplot(fig2)
+            plt.close(fig2)
+            plt.close(fig)
         else:
             st.error("SHAP library not installed.")
 
@@ -3145,7 +3163,7 @@ def render_advanced_stats(df):
     with tab5:
         st.subheader("Non-Parametric Bootstrap")
         col = st.selectbox("Column", num_cols, key='bs_c')
-        n_boot = st.number_input("Iterations", 100, 10000, 1000)
+        n_boot = int(st.number_input("Iterations", 100, 10000, 1000))
         
         if st.button("Run Bootstrap"):
             data = df[col].dropna().values
@@ -3404,12 +3422,13 @@ def render_bi_analytics(df):
         id_c = st.selectbox("ID", df.columns, key='ret_i')
         
         if st.button("Generate Cohort"):
-            df['OrderPeriod'] = df[date_c].apply(lambda x: x.strftime('%Y-%m'))
-            df.set_index(id_c, inplace=True)
-            df['CohortGroup'] = df.groupby(level=0)[date_c].min().apply(lambda x: x.strftime('%Y-%m'))
-            df.reset_index(inplace=True)
+            df_cohort = df.copy()
+            df_cohort['OrderPeriod'] = df_cohort[date_c].apply(lambda x: x.strftime('%Y-%m'))
+            df_cohort.set_index(id_c, inplace=True)
+            df_cohort['CohortGroup'] = df_cohort.groupby(level=0)[date_c].min().apply(lambda x: x.strftime('%Y-%m'))
+            df_cohort.reset_index(inplace=True)
             
-            grouped = df.groupby(['CohortGroup', 'OrderPeriod'])
+            grouped = df_cohort.groupby(['CohortGroup', 'OrderPeriod'])
             cohorts = grouped.agg({id_c: pd.Series.nunique})
             cohorts.rename(columns={id_c: 'TotalUsers'}, inplace=True)
             
@@ -3438,6 +3457,8 @@ def render_bi_analytics(df):
             df_log['log_price'] = np.log(df_log[price_col])
             df_log['log_qty'] = np.log(df_log[qty_col])
             
+            # Sanitize columns for statsmodels formula
+            # Although 'log_price' and 'log_qty' are safe, we use them directly.
             model = smf.ols("log_qty ~ log_price", data=df_log).fit()
             elasticity = model.params['log_price']
             
