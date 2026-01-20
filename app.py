@@ -5778,6 +5778,42 @@ def render_connectors(df):
                 elif api_df is not None:
                      st.warning("Empty response received")
 
+# ============================================================================
+# 15. MAIN RENDERER & ROUTING
+# ============================================================================
+
+def render_home_page(df):
+    """Landing page for 'Upload & Merge' phase."""
+    st.title("📂 Data Ingestion & Overview")
+    
+    if df is None:
+        st.info("👈 Please upload a CSV, Excel, or other data file in the sidebar to begin.")
+        st.markdown("""
+        ### Welcome to Lumina Analytics Suite
+        This platform offers a comprehensive set of tools for data analysis:
+        
+        *   **Exploratory**: Dashboard, Auto EDA, Deep Dive.
+        *   **Predictive**: AutoML, Regression, Classification.
+        *   **Statistical**: Hypothesis Testing, Causal Inference.
+        *   **Business**: RFM, Cohort, Pareto Analysis.
+        
+        **Supported Formats**: CSV, Excel, JSON, Parquet, SAS (.xpt/.sas7bdat), Stata (.dta).
+        """)
+    else:
+        st.success(f"Dataset Loaded Successfully: {len(df):,} rows x {len(df.columns)} columns")
+        
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Rows", len(df))
+        col2.metric("Columns", len(df.columns))
+        col3.metric("Numeric Features", len(df.select_dtypes(include=np.number).columns))
+        col4.metric("Categorical Features", len(df.select_dtypes(include='object').columns))
+        
+        st.subheader("Data Preview")
+        st.dataframe(df.head(50), use_container_width=True)
+        
+        st.markdown("---")
+        st.caption("Navigate to **Exploratory & Visuals** or **Predictive Modeling** to analyze this data.")
+
 def main():
     phase, df = sidebar_processor()
     
@@ -5785,6 +5821,7 @@ def main():
         st.session_state.analysis_history = []
 
     if phase == "Monitor": safe_render(render_monitor, df)
+    elif phase == "Data Ingestion": safe_render(render_home_page, df) # Default Phase
     elif phase == "Connectors": safe_render(render_connectors, df) # NEW v1.3
     elif phase == "Explore": safe_render(render_explore, df)
     elif phase == "Cluster": safe_render(render_cluster, df)
