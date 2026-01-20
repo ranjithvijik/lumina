@@ -34,25 +34,19 @@ warnings.filterwarnings('ignore')
 # ============================================================================
 
 class SQLConnector:
-    """Handles database connections and queries."""
+    """Handles database connections and queries via SQLAlchemy."""
     def __init__(self, connection_string: str = "sqlite:///:memory:"):
         self.conn_str = connection_string
         
     def execute_query(self, query: str) -> pd.DataFrame:
         """Execute SQL query and return DataFrame."""
         try:
-            # Basic SQLite support
-            if "sqlite" in self.conn_str:
-                path = self.conn_str.replace("sqlite:///", "")
-                if path == ":memory:":
-                    return pd.DataFrame() # Dummy for demo
-                with sqlite3.connect(path) as conn:
-                    return pd.read_sql(query, conn)
-            # Placeholder for other DBs (sqlalchemy required for prod)
-            else:
-                return pd.DataFrame({"Error": ["Only SQLite supported in this demo mode."]})
+            from sqlalchemy import create_engine, text
+            engine = create_engine(self.conn_str)
+            with engine.connect() as conn:
+                return pd.read_sql(text(query), conn)
         except Exception as e:
-            return pd.DataFrame({"Error": [str(e)]})
+            return pd.DataFrame({"Error": [f"Database Error: {str(e)}"]})
 
 class APIFetcher:
     """Handles REST API data fetching."""
@@ -529,6 +523,12 @@ def parse_uploaded_file(uploaded_file):
             return pd.read_json(uploaded_file), "single"
         elif filename.endswith('.parquet'):
             return pd.read_parquet(uploaded_file), "single"
+        elif filename.endswith('.xml'):
+            return pd.read_xml(uploaded_file), "single"
+        elif filename.endswith('.dta'):
+            return pd.read_stata(uploaded_file), "single"
+        elif filename.endswith(('.pkl', '.pickle')):
+            return pd.read_pickle(uploaded_file), "single"
         else:
             return f"Unsupported file extension: {filename}", "error"
             
@@ -2882,6 +2882,19 @@ class PipelineManager:
                     if params['old'] in df_processed.columns:
                         df_processed = df_processed.rename(columns={params['old']: params['new']})
                         
+                elif s_type == 'pivot':
+                    idx = params['index']
+                    cols = params['columns'] 
+                    vals = params['values']
+                    if idx in df_processed.columns and cols in df_processed.columns and vals in df_processed.columns:
+                        df_processed = df_processed.pivot_table(index=idx, columns=cols, values=vals, aggfunc='sum').reset_index()
+
+                elif s_type == 'melt':
+                    ids = params['id_vars']
+                    val_vars = params['value_vars'] if params['value_vars'] else None
+                    if ids:
+                        df_processed = df_processed.melt(id_vars=ids, value_vars=val_vars)
+
                 elif s_type == 'filter_numeric':
                     col = params['col']
                     op = params['op']
@@ -5387,7 +5400,7 @@ def sidebar_processor():
         
         uploaded_files = st.file_uploader(
             "Upload File(s)", 
-            type=['csv', 'xlsx', 'xls', 'txt', 'tsv', 'json', 'parquet'],
+            type=['csv', 'xlsx', 'xls', 'txt', 'tsv', 'json', 'parquet', 'xml', 'dta', 'pkl', 'pickle'],
             accept_multiple_files=True,
             help="Upload multiple files to merge them."
         )
@@ -5482,7 +5495,7 @@ def render_connectors(df):
                     # 1. Add New Step
                     st.markdown("**Add Transformation Step**")
                     step_type = st.selectbox("Operation Type", 
-                        ["Drop Columns", "Filter Rows", "Impute Missing", "Text Standardization", "Change Data Type", "Rename Column"])
+                        ["Drop Columns", "Filter Rows", "Impute Missing", "Text Standardization", "Change Data Type", "Rename Column", "Pivot (Reshape)", "Melt (Unpivot)"])
                     
                     if step_type == "Drop Columns":
                         cols = st.multiselect("Select Columns", df.columns)
@@ -5522,6 +5535,21 @@ def render_connectors(df):
                         new_name = st.text_input("New Name")
                         if st.button("Add Rename Step"):
                             pm.add_step("rename_col", {'old': old_col, 'new': new_name}, f"Rename {old_col} -> {new_name}")
+                            st.rerun()
+                            
+                    elif step_type == "Pivot (Reshape)":
+                        idx = st.selectbox("Index (Rows)", df.columns, key='piv_idx')
+                        cols = st.selectbox("Columns (New Headers)", df.columns, key='piv_col')
+                        vals = st.selectbox("Values", df.select_dtypes(include=np.number).columns, key='piv_val')
+                        if st.button("Add Pivot Step"):
+                            pm.add_step("pivot", {'index': idx, 'columns': cols, 'values': vals}, f"Pivot: Index={idx}, Cols={cols}")
+                            st.rerun()
+
+                    elif step_type == "Melt (Unpivot)":
+                        id_vars = st.multiselect("ID Variables (Keepers)", df.columns, key='melt_id')
+                        val_vars = st.multiselect("Value Variables (Unpivot)", [c for c in df.columns if c not in id_vars], key='melt_val')
+                        if st.button("Add Melt Step"):
+                            pm.add_step("melt", {'id_vars': id_vars, 'value_vars': val_vars}, f"Melt: IDs={len(id_vars)} cols")
                             st.rerun()
 
                     # 2. View/Manage Pipeline
