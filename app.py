@@ -263,11 +263,20 @@ except ImportError:
     OLLAMA_AVAILABLE = False
 
 try:
-    from langchain_openai import ChatOpenAI, AzureChatOpenAI
+    from langchain_openai import ChatOpenAI, AzureChatOpenAI, OpenAIEmbeddings
     OPENAI_AVAILABLE = True
 except ImportError:
     OPENAI_AVAILABLE = False
 
+try:
+    from langchain_community.vectorstores import FAISS
+    from langchain_community.document_loaders import PyPDFLoader, TextLoader
+    from langchain.text_splitter import RecursiveCharacterTextSplitter
+    from langchain_community.embeddings import OllamaEmbeddings
+    RAG_AVAILABLE = True
+except ImportError:
+    RAG_AVAILABLE = False
+    
 # Global Config
 st.set_page_config(
     page_title="Lumina Analytics v1.7",
@@ -2901,69 +2910,142 @@ def render_smart_narrative(df):
 # NEW ENHANCEMENT 9: AI ASSISTANT (v1.7)
 # ============================================================================
 
+# Helper: Process RAG Documents
+def process_documents(uploaded_files, embedding_model):
+    """
+    Process uploaded PDFs/TXTs into a Vector Store (FAISS).
+    """
+    documents = []
+    
+    if not RAG_AVAILABLE:
+        return None, "RAG libraries missing."
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        for file in uploaded_files:
+            temp_filepath = os.path.join(temp_dir, file.name)
+            with open(temp_filepath, "wb") as f:
+                f.write(file.getbuffer())
+            
+            # Load
+            if file.name.endswith(".pdf"):
+                loader = PyPDFLoader(temp_filepath)
+                documents.extend(loader.load())
+            elif file.name.endswith(".txt"):
+                loader = TextLoader(temp_filepath)
+                documents.extend(loader.load())
+                
+    # Split
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+    splits = text_splitter.split_documents(documents)
+    
+    # Store
+    if splits:
+        vectorstore = FAISS.from_documents(documents=splits, embedding=embedding_model)
+        return vectorstore, f"Processed {len(splits)} chunks."
+    
+    return None, "No text text found."
+
 def render_ai_assistant(df):
     st.markdown("""
         <div class="phase-container">
-            <div class="phase-title">🤖 AI Assistant (Hybrid Cloud)</div>
-            <div class="phase-subtitle">Secure Analytics: Local (Ollama) or Enterprise (Azure/OpenAI)</div>
+            <div class="phase-title">🤖 AI Assistant (Hybrid RAG)</div>
+            <div class="phase-subtitle">Talk to Data & Documents (Secure Knowledge Base)</div>
         </div>
     """, unsafe_allow_html=True)
     
+    col_config, col_kb = st.columns([1, 1])
+    
     # 1. Hybrid Provider Toggle
-    with st.sidebar.expander("⚙️ AI Configuration", expanded=True):
-        provider_mode = st.radio("Select Infrastructure", ["🤖 Local (Privacy)", "☁️ Enterprise Cloud"])
-        
-        llm = None
-        
-        if provider_mode == "🤖 Local (Privacy)":
-            if not OLLAMA_AVAILABLE:
-                st.error("Ollama library not found.")
-            else:
-                model_name = st.text_input("Ollama Model", "llama3")
-                base_url = st.text_input("Host", "http://localhost:11434")
-                if st.button("Initialize Local AI"):
-                    llm = Ollama(model=model_name, base_url=base_url, temperature=0.1)
-                    st.session_state.active_llm = llm
-                    st.success("Connected to Local AI")
+    with col_config:
+        with st.expander("⚙️ AI Configuration", expanded=True):
+            provider_mode = st.radio("Select Infrastructure", ["🤖 Local (Privacy)", "☁️ Enterprise Cloud"])
+            
+            llm = None
+            embedding_model = None
+            
+            if provider_mode == "🤖 Local (Privacy)":
+                if not OLLAMA_AVAILABLE:
+                    st.error("Ollama library not found.")
+                else:
+                    model_name = st.text_input("Ollama Model", "llama3")
+                    base_url = st.text_input("Host", "http://localhost:11434")
+                    if st.button("Initialize Local AI"):
+                        llm = Ollama(model=model_name, base_url=base_url, temperature=0.1)
+                        # Embeddings
+                        embedding_model = OllamaEmbeddings(model="llama3", base_url=base_url)
+                        st.session_state.active_llm = llm
+                        st.session_state.active_embedding = embedding_model
+                        st.success("Connected to Local AI")
+                        
+            else: # Cloud Mode
+                if not OPENAI_AVAILABLE:
+                    st.error("LangChain OpenAI library not found. Install `langchain-openai`.")
+                else:
+                    cloud_provider = st.radio("Provider", ["Azure OpenAI (HIPAA)", "OpenAI Standard"])
+                    api_key = st.text_input("API Key", type="password")
                     
-        else: # Cloud Mode
-            if not OPENAI_AVAILABLE:
-                st.error("LangChain OpenAI library not found. Install `langchain-openai`.")
-            else:
-                cloud_provider = st.radio("Provider", ["Azure OpenAI (HIPAA)", "OpenAI Standard"])
-                api_key = st.text_input("API Key", type="password")
-                
-                if cloud_provider == "Azure OpenAI (HIPAA)":
-                    st.caption("✅ HIPAA Compliant (with BAA)")
-                    azure_endpoint = st.text_input("Endpoint", "https://your-resource.openai.azure.com/")
-                    deployment_name = st.text_input("Deployment Name")
-                    api_version = st.text_input("API Version", "2023-05-15")
-                    
-                    if st.button("Initialize Azure AI"):
-                        if api_key and azure_endpoint:
-                            llm = AzureChatOpenAI(
-                                azure_deployment=deployment_name,
-                                openai_api_version=api_version,
-                                azure_endpoint=azure_endpoint,
-                                api_key=api_key,
-                                temperature=0
-                            )
-                            st.session_state.active_llm = llm
-                            st.success("Connected to Azure AI")
-                        else:
-                            st.warning("Missing Credentials")
-                            
-                else: # OpenAI Standard
-                    model = st.text_input("Model", "gpt-4o")
-                    if st.button("Initialize OpenAI"):
-                        if api_key:
-                            llm = ChatOpenAI(model=model, api_key=api_key, temperature=0)
-                            st.session_state.active_llm = llm
-                            st.success("Connected to OpenAI")
-                        else:
-                            st.warning("Enter API Key")
+                    if cloud_provider == "Azure OpenAI (HIPAA)":
+                        st.caption("✅ HIPAA Compliant (with BAA)")
+                        azure_endpoint = st.text_input("Endpoint", "https://your-resource.openai.azure.com/")
+                        deployment_name = st.text_input("Deployment Name")
+                        api_version = st.text_input("API Version", "2023-05-15")
+                        
+                        if st.button("Initialize Azure AI"):
+                            if api_key and azure_endpoint:
+                                llm = AzureChatOpenAI(
+                                    azure_deployment=deployment_name,
+                                    openai_api_version=api_version,
+                                    azure_endpoint=azure_endpoint,
+                                    api_key=api_key,
+                                    temperature=0
+                                )
+                                # Azure Embeddings (Assume same endpoint)
+                                embedding_model = OpenAIEmbeddings(
+                                    api_key=api_key, 
+                                    azure_endpoint=azure_endpoint,
+                                    deployment="text-embedding-ada-002", # Hardcoded for demo
+                                    openai_api_version=api_version,
+                                    openai_api_type="azure"
+                                )
+                                
+                                st.session_state.active_llm = llm
+                                st.session_state.active_embedding = embedding_model
+                                st.success("Connected to Azure AI")
+                            else:
+                                st.warning("Missing Credentials")
+                                
+                    else: # OpenAI Standard
+                        model = st.text_input("Model", "gpt-4o")
+                        if st.button("Initialize OpenAI"):
+                            if api_key:
+                                llm = ChatOpenAI(model=model, api_key=api_key, temperature=0)
+                                embedding_model = OpenAIEmbeddings(api_key=api_key)
+                                st.session_state.active_llm = llm
+                                st.session_state.active_embedding = embedding_model
+                                st.success("Connected to OpenAI")
+                            else:
+                                st.warning("Enter API Key")
 
-    # 2. Chat Interface
+    # 2. Knowledge Base (RAG)
+    with col_kb:
+        with st.expander("📄 Knowledge Base (Documents)", expanded=True):
+            uploaded_docs = st.file_uploader("Upload Context (PDF/TXT)", accept_multiple_files=True)
+            if uploaded_docs:
+                if 'active_embedding' in st.session_state and st.session_state.active_embedding:
+                    if st.button("Process Documents"):
+                        with st.spinner("Ingesting Knowledge Base..."):
+                            vs, msg = process_documents(uploaded_docs, st.session_state.active_embedding)
+                            if vs:
+                                st.session_state.vector_store = vs
+                                st.success(msg)
+                            else:
+                                st.error(msg)
+                else:
+                    st.warning("Please Initialize AI First (to load Embeddings)")
+
+    st.divider()
+
+    # 3. Chat Interface
     if "messages" not in st.session_state:
         st.session_state.messages = [{"role": "assistant", "content": "Hello! I am Lumina. Connect an AI provider to start."}]
 
@@ -2982,12 +3064,19 @@ def render_ai_assistant(df):
             with st.chat_message("assistant"):
                 with st.spinner("Analyzing..."):
                     try:
-                        # Context Prep
-                        context_str = ""
+                        # 1. RAG Retrieval (Knowledge Base)
+                        doc_context = ""
+                        if 'vector_store' in st.session_state and st.session_state.vector_store:
+                            docs = st.session_state.vector_store.similarity_search(prompt, k=3)
+                            doc_texts = "\n".join([d.page_content for d in docs])
+                            doc_context = f"\nDOCUMENT KNOWLEDGE:\n{doc_texts}\n"
+                        
+                        # 2. DataFrame Context
+                        df_context = ""
                         if df is not None:
                             buf = io.StringIO()
                             df.info(buf=buf)
-                            context_str = f"""
+                            df_context = f"""
                             DATA SCHEME:
                             {buf.getvalue()}
                             STATS:
@@ -2996,19 +3085,26 @@ def render_ai_assistant(df):
                             {df.head(3).to_string()}
                             """
                         else:
-                            context_str = "No dataframe loaded."
+                            df_context = "No dataframe loaded."
                             
-                        # Prompt
+                        # 3. Hybrid Prompt
                         full_prompt = f"""
-                        You are Lumina, a secure Data Analyst.
-                        Context: {context_str}
-                        Question: {prompt}
-                        Answer concisely. available tools: None.
+                        You are Lumina, an intelligent Data Analyst.
+                        
+                        {doc_context}
+                        
+                        {df_context}
+                        
+                        USER QUESTION: {prompt}
+                        
+                        INSTRUCTIONS:
+                        - If the answer is in the DOCUMENT KNOWLEDGE, cite it.
+                        - If the question is about the Data, use the DATA SCHEME/STATS.
+                        - Combine both sources if needed.
                         """
                         
-                        # Invoke (Universal for Ollama/OpenAI/Azure)
+                        # Invoke
                         response = st.session_state.active_llm.invoke(full_prompt)
-                        # Handle varied response types (String vs AIMessage)
                         res_text = response.content if hasattr(response, 'content') else str(response)
                         
                         st.markdown(res_text)
