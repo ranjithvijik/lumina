@@ -3341,7 +3341,13 @@ def render_nlp_suite(df):
         st.subheader("Named Entity Recognition")
         if SPACY_AVAILABLE:
             if st.button("Extract Entities"):
-                nlp = spacy.load("en_core_web_sm")
+                try:
+                    nlp = spacy.load("en_core_web_sm")
+                except OSError:
+                    st.warning("Downloading language model 'en_core_web_sm' (one-time setup)...")
+                    from spacy.cli import download
+                    download("en_core_web_sm")
+                    nlp = spacy.load("en_core_web_sm")
                 # Limit to first 50 docs for speed
                 docs = list(nlp.pipe(text_data[:50]))
                 entities = []
