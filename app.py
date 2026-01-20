@@ -7,7 +7,18 @@ import plotly.graph_objects as go
 import plotly.express as px
 import plotly.figure_factory as ff
 from plotly.subplots import make_subplots
+import seaborn as sns
+import matplotlib.pyplot as plt
+import io
+import time
+import base64
+import json
+import re
+import tempfile
+import os
+import requests
 from datetime import datetime
+import warnings
 from sklearn.cluster import KMeans, DBSCAN
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
@@ -18,14 +29,10 @@ import statsmodels.api as sm
 from statsmodels.formula.api import ols
 import statsmodels.formula.api as smf
 from statsmodels.stats.outliers_influence import variance_inflation_factor
-import json
-import io
-import warnings
 import hashlib
 import pickle
 import uuid
 import sqlite3
-import requests
 from typing import Dict, List, Optional, Tuple, Any
 warnings.filterwarnings('ignore')
 
@@ -82,7 +89,6 @@ from sklearn.linear_model import LogisticRegression, LinearRegression
 from sklearn.metrics import roc_auc_score, accuracy_score, r2_score, mean_squared_error, classification_report, confusion_matrix, f1_score
 from sklearn.model_selection import train_test_split, RandomizedSearchCV, cross_val_score
 from sklearn.inspection import partial_dependence
-import matplotlib.pyplot as plt
 
 # --- OPTIONAL DEPENDENCY CHECKS ---
 
@@ -101,7 +107,6 @@ except ImportError:
 
 from statsmodels.tsa.seasonal import seasonal_decompose
 from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
-import seaborn as sns
 from scipy.cluster.hierarchy import dendrogram, linkage
 from scipy.spatial.distance import pdist
 from itertools import combinations
@@ -559,13 +564,16 @@ def parse_uploaded_file(uploaded_file):
             return pd.read_pickle(uploaded_file), "single"
         elif filename.endswith('.sas7bdat'):
             if SAS_AVAILABLE:
-                df, meta = pyreadstat.read_sas7bdat(uploaded_file.name) # Streamlit file might need temp path logic if direct read fails, but let's try direct first or use temp
-                # Streamlit uploaded_file is BytesIO. pyreadstat expects path or needs manual byte handling.
-                # Actually pyreadstat usually needs a file path. Let's use robust temp file method.
-                with open(filename, "wb") as f:
-                    f.write(uploaded_file.getbuffer())
-                df, meta = pyreadstat.read_sas7bdat(filename)
-                return df, "single"
+                with tempfile.NamedTemporaryFile(delete=False, suffix='.sas7bdat') as tmp:
+                    tmp.write(uploaded_file.getbuffer())
+                    tmp_path = tmp.name
+                
+                try:
+                    df, meta = pyreadstat.read_sas7bdat(tmp_path)
+                    return df, "single"
+                finally:
+                    if os.path.exists(tmp_path):
+                        os.unlink(tmp_path)
             else:
                 return "SAS library (pyreadstat) not installed.", "error"
         else:
@@ -609,43 +617,32 @@ def safe_dataframe(data, **kwargs):
     if data is None: return
     
     df_disp = data.copy()
+    # Convert objects to strings to prevent arrow errors
     for col in df_disp.select_dtypes(include=['object']):
         try:
             df_disp[col] = df_disp[col].astype(str)
         except: pass
     
-    # Remove deprecated/invalid params
-    kwargs.pop('use_container_width', None)
-    kwargs.pop('width', None)
-    
-    # NEW API: use width='stretch' instead of use_container_width=True
-    # NEW API: use width='stretch' instead of use_container_width=True
-    # Streamlit > 1.40 prefers width='stretch'
     try:
-        # Optimistically try new API
-        st.dataframe(df_disp, width="stretch", **kwargs)
-    except TypeError:
-        # Fallback for older Streamlit
         st.dataframe(df_disp, use_container_width=True, **kwargs)
+    except TypeError:
+        # Fallback for newer Streamlit versions or specific kwarg constraints
+        if 'use_container_width' in kwargs:
+            kwargs.pop('use_container_width')
+        st.dataframe(df_disp, **kwargs)
 
 def safe_plot(fig, height=None, **kwargs):
     if fig is None: return
-    # Remove potentially conflicting args if present
-    kwargs.pop('use_container_width', None)
-    
-    if height:
-        fig.update_layout(height=height)
-    
-    # NEW API: use width='stretch' instead of use_container_width=True
-    # NEW API: use width='stretch' instead of use_container_width=True
     try:
-        # Optimistically try new API
-        # Remove legacy arg from kwargs if present
-        kwargs.pop('use_container_width', None)
-        st.plotly_chart(fig, width="stretch", **kwargs)
+        if height:
+            st.plotly_chart(fig, use_container_width=True, height=height, **kwargs)
+        else:
+            st.plotly_chart(fig, use_container_width=True, **kwargs)
     except TypeError:
-        # Fallback for older Streamlit (which won't understand width='stretch' string or arg)
-        st.plotly_chart(fig, use_container_width=True, **kwargs)
+         # Fallback
+        if 'use_container_width' in kwargs:
+            kwargs.pop('use_container_width')
+        st.plotly_chart(fig, **kwargs)
 
 def get_column_types(df):
     numeric = df.select_dtypes(include=[np.number]).columns.tolist()
@@ -2721,7 +2718,10 @@ def render_pareto_analysis(df):
     if cat and metric:
         # Aggregation
         pareto_df = df.groupby(cat)[metric].sum().reset_index().sort_values(metric, ascending=False)
-        pareto_df['Cumulative Percentage'] = pareto_df[metric].cumsum() / pareto_df[metric].sum() * 100
+        if pareto_df[metric].sum() > 0:
+            pareto_df['Cumulative Percentage'] = pareto_df[metric].cumsum() / pareto_df[metric].sum() * 100
+        else:
+            pareto_df['Cumulative Percentage'] = 0
         
         # ABC Class
         def abc_classify(p):
@@ -2983,6 +2983,7 @@ def render_ai_assistant(df):
                 else:
                     cloud_provider = st.radio("Provider", ["Azure OpenAI (HIPAA)", "OpenAI Standard"])
                     api_key = st.text_input("API Key", type="password")
+                    st.caption("🔒 API keys are not stored and are only used for this session.")
                     
                     if cloud_provider == "Azure OpenAI (HIPAA)":
                         st.caption("✅ HIPAA Compliant (with BAA)")
@@ -5704,27 +5705,29 @@ def render_automl_suite(df):
 
 
 def sidebar_processor():
+    """
+    Manages the sidebar navigation and simple global inputs.
+    Returns the selected 'app_mode' (str).
+    """
     with st.sidebar:
-        st.sidebar.title("Lumina Analytics v1.7")
-    
-        # 1. Navigation
-        app_mode = st.sidebar.radio("Navigate", [
+        st.markdown("## 🧭 Navigation")
+        # UPDATED: Aligns precisely with main() routing
+        app_mode = st.radio("Go to:", [
             "Home", 
-            "Data Connectors", 
-            "Data Ingestion & ETL", 
-            "Monitor Phase", 
-            "Explore Phase", 
-            "AI Scientist (Deep Learning)",
+            "Connectors",
+            "Monitor",
+            "Explore",
+            "Deep Learning",
             "NLP Suite",
-            "Time Series+", 
-            "Statistics+",
+            "Timeseries Advanced",
+            "Statistics Advanced",
             "BI Analytics",
-            "Smart Narrative", 
-            "PDF Reports",
+            "Smart Narrative",
+            "PDF Report",
             "🤖 AI Assistant"
         ])
         
-        st.divider()
+        st.write("---")
         
         # 2. File Uploader
         st.markdown("### 📤 Data Ingestion")
@@ -5805,6 +5808,7 @@ def render_connectors(df):
     # --- SQL Tab ---
     with tab1:
         st.subheader("🔌 SQL Connection")
+        st.warning("⚠️ Only run queries from trusted sources. SQL injection is possible.")
         conn_str = st.text_input("Connection String (URI)", "sqlite:///example.db", help="Currently supports SQLite. For others, install SQLAlchemy.")
         query = st.text_area("SQL Query", "SELECT * FROM my_table LIMIT 10")
         
